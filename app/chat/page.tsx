@@ -26,6 +26,8 @@ import {
   Users,
   LogOut,
   Settings,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -181,7 +183,12 @@ export default function ChatPage() {
     username: "You",
     avatar: "/placeholder.svg?height=40&width=40",
   })
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen)
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -253,127 +260,263 @@ export default function ChatPage() {
   const filteredContacts = contacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-3">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={currentUser.avatar || "/placeholder.svg"} />
-                <AvatarFallback>
-                  {currentUser.username
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")}
-                </AvatarFallback>
-              </Avatar>
-              <h1 className="text-xl font-semibold">Messages</h1>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <UserPlus className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Add Friends</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                      <Input
-                        placeholder="Search people..."
-                        value={friendSearchQuery}
-                        onChange={(e) => setFriendSearchQuery(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
+    <div className="flex h-screen bg-gray-50 relative">
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
 
-                    {/* Friend Requests */}
-                    {friendRequests.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-700 mb-2">Friend Requests</h3>
-                        <div className="space-y-2">
-                          {friendRequests.map((request) => (
-                            <div key={request.id} className="flex items-center justify-between p-2 rounded-lg border">
-                              <div className="flex items-center space-x-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarImage src={request.avatar || "/placeholder.svg"} />
-                                  <AvatarFallback>
-                                    {request.name
-                                      .split(" ")
-                                      .map((n) => n[0])
-                                      .join("")}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div>
-                                  <p className="text-sm font-medium">{request.name}</p>
-                                  <p className="text-xs text-gray-500">{request.mutualFriends} mutual friends</p>
-                                </div>
-                              </div>
-                              <div className="flex space-x-1">
-                                <Button size="sm" variant="default" onClick={() => addFriend(request.id)}>
-                                  Accept
-                                </Button>
-                                <Button size="sm" variant="outline">
-                                  Decline
-                                </Button>
+      {/* Sidebar */}
+      <div
+        className={cn(
+          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out z-30 md:z-auto relative",
+          isSidebarOpen ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto" : "w-0 md:w-12 overflow-hidden",
+        )}
+      >
+        {/* Sidebar Toggle Button */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleSidebar}
+          className={cn(
+            "absolute top-4 z-40 transition-all duration-300 rounded-full h-8 w-8 p-0",
+            isSidebarOpen
+              ? "right-4 hover:bg-gray-100"
+              : "right-2 md:right-1 bg-blue-500 text-white hover:bg-blue-600 shadow-lg",
+          )}
+        >
+          {isSidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </Button>
+
+        {/* Sidebar Content */}
+        <div
+          className={cn(
+            "transition-all duration-300 h-full",
+            isSidebarOpen ? "opacity-100" : "opacity-0 md:opacity-100",
+          )}
+        >
+          {isSidebarOpen ? (
+            <>
+              {/* Header */}
+              <div className="p-4 border-b border-gray-200 pt-16">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={currentUser.avatar || "/placeholder.svg"} />
+                      <AvatarFallback>
+                        {currentUser.username
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <h1 className="text-xl font-semibold">Messages</h1>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <UserPlus className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Add Friends</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                            <Input
+                              placeholder="Search people..."
+                              value={friendSearchQuery}
+                              onChange={(e) => setFriendSearchQuery(e.target.value)}
+                              className="pl-10"
+                            />
+                          </div>
+
+                          {/* Friend Requests */}
+                          {friendRequests.length > 0 && (
+                            <div>
+                              <h3 className="text-sm font-medium text-gray-700 mb-2">Friend Requests</h3>
+                              <div className="space-y-2">
+                                {friendRequests.map((request) => (
+                                  <div
+                                    key={request.id}
+                                    className="flex items-center justify-between p-2 rounded-lg border"
+                                  >
+                                    <div className="flex items-center space-x-3">
+                                      <Avatar className="h-8 w-8">
+                                        <AvatarImage src={request.avatar || "/placeholder.svg"} />
+                                        <AvatarFallback>
+                                          {request.name
+                                            .split(" ")
+                                            .map((n) => n[0])
+                                            .join("")}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div>
+                                        <p className="text-sm font-medium">{request.name}</p>
+                                        <p className="text-xs text-gray-500">{request.mutualFriends} mutual friends</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex space-x-1">
+                                      <Button size="sm" variant="default" onClick={() => addFriend(request.id)}>
+                                        Accept
+                                      </Button>
+                                      <Button size="sm" variant="outline">
+                                        Decline
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
-                          ))}
+                          )}
+
+                          {/* Suggested Users */}
+                          <div>
+                            <h3 className="text-sm font-medium text-gray-700 mb-2">Suggested</h3>
+                            <div className="space-y-2">
+                              {filteredSuggestedUsers.map((user) => (
+                                <div key={user.id} className="flex items-center justify-between p-2 rounded-lg border">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="relative">
+                                      <Avatar className="h-8 w-8">
+                                        <AvatarImage src={user.avatar || "/placeholder.svg"} />
+                                        <AvatarFallback>
+                                          {user.name
+                                            .split(" ")
+                                            .map((n) => n[0])
+                                            .join("")}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      {user.online && (
+                                        <div className="absolute bottom-0 right-0 h-2 w-2 bg-green-500 border border-white rounded-full"></div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium">{user.name}</p>
+                                      <p className="text-xs text-gray-500">{user.online ? "Online" : "Offline"}</p>
+                                    </div>
+                                  </div>
+                                  <Button size="sm" variant="outline" onClick={() => addFriend(user.id)}>
+                                    <UserPlus className="h-3 w-3 mr-1" />
+                                    Add
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Settings
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Users className="h-4 w-4 mr-2" />
+                          Manage Groups
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                          <LogOut className="h-4 w-4 mr-2" />
+                          Logout
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    placeholder="Search conversations..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Contacts List */}
+              <ScrollArea className="flex-1">
+                <div className="p-2">
+                  {filteredContacts.map((contact) => (
+                    <div
+                      key={contact.id}
+                      onClick={() => setSelectedContact(contact)}
+                      className={cn(
+                        "flex items-center p-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors",
+                        selectedContact.id === contact.id && "bg-blue-50 border border-blue-200",
+                      )}
+                    >
+                      <div className="relative">
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={contact.avatar || "/placeholder.svg"} />
+                          <AvatarFallback>
+                            {contact.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        {contact.online && (
+                          <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></div>
+                        )}
+                      </div>
+                      <div className="ml-3 flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-900 truncate">{contact.name}</p>
+                          <p className="text-xs text-gray-500">{contact.timestamp}</p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-gray-500 truncate">{contact.lastMessage}</p>
+                          {contact.unread > 0 && (
+                            <Badge
+                              variant="default"
+                              className="ml-2 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                            >
+                              {contact.unread}
+                            </Badge>
+                          )}
                         </div>
                       </div>
-                    )}
-
-                    {/* Suggested Users */}
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-700 mb-2">Suggested</h3>
-                      <div className="space-y-2">
-                        {filteredSuggestedUsers.map((user) => (
-                          <div key={user.id} className="flex items-center justify-between p-2 rounded-lg border">
-                            <div className="flex items-center space-x-3">
-                              <div className="relative">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarImage src={user.avatar || "/placeholder.svg"} />
-                                  <AvatarFallback>
-                                    {user.name
-                                      .split(" ")
-                                      .map((n) => n[0])
-                                      .join("")}
-                                  </AvatarFallback>
-                                </Avatar>
-                                {user.online && (
-                                  <div className="absolute bottom-0 right-0 h-2 w-2 bg-green-500 border border-white rounded-full"></div>
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">{user.name}</p>
-                                <p className="text-xs text-gray-500">{user.online ? "Online" : "Offline"}</p>
-                              </div>
-                            </div>
-                            <Button size="sm" variant="outline" onClick={() => addFriend(user.id)}>
-                              <UserPlus className="h-3 w-3 mr-1" />
-                              Add
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
                     </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                  ))}
+                </div>
+              </ScrollArea>
+            </>
+          ) : (
+            // Collapsed sidebar - show only essential buttons
+            <div className="hidden md:flex flex-col items-center py-4 space-y-4 pt-16">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setIsSidebarOpen(true)
+                  setIsAddFriendOpen(true)
+                }}
+                className="p-2 rounded-full"
+                title="Add Friends"
+              >
+                <UserPlus className="h-4 w-4" />
+              </Button>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" className="p-2 rounded-full" title="Menu">
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent>
+                <DropdownMenuContent side="right">
                   <DropdownMenuItem>
                     <Settings className="h-4 w-4 mr-2" />
                     Settings
@@ -390,62 +533,8 @@ export default function ChatPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+          )}
         </div>
-
-        {/* Contacts List */}
-        <ScrollArea className="flex-1">
-          <div className="p-2">
-            {filteredContacts.map((contact) => (
-              <div
-                key={contact.id}
-                onClick={() => setSelectedContact(contact)}
-                className={cn(
-                  "flex items-center p-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors",
-                  selectedContact.id === contact.id && "bg-blue-50 border border-blue-200",
-                )}
-              >
-                <div className="relative">
-                  <Avatar className="h-12 w-12">
-                    <AvatarImage src={contact.avatar || "/placeholder.svg"} />
-                    <AvatarFallback>
-                      {contact.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </AvatarFallback>
-                  </Avatar>
-                  {contact.online && (
-                    <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></div>
-                  )}
-                </div>
-                <div className="ml-3 flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-900 truncate">{contact.name}</p>
-                    <p className="text-xs text-gray-500">{contact.timestamp}</p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500 truncate">{contact.lastMessage}</p>
-                    {contact.unread > 0 && (
-                      <Badge variant="default" className="ml-2 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                        {contact.unread}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
       </div>
 
       {/* Main Chat Area */}
@@ -573,6 +662,7 @@ export default function ChatPage() {
               <AvatarFallback className="text-2xl">
                 {selectedContact.name
                   .split(" ")
+                  .map(" ")
                   .map((n) => n[0])
                   .join("")}
               </AvatarFallback>
