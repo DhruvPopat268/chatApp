@@ -66,10 +66,16 @@ class WebRTCManager {
 
     // Handle call accepted
     this.socket.on('call_accepted', async (data: CallData) => {
+      console.log('Call accepted by receiver')
       this.callState.isOutgoing = false
       this.callState.isConnected = true
       this.callState.callData = data
-      await this.createPeerConnection()
+      
+      // Only create peer connection if it doesn't exist
+      if (!this.peerConnection) {
+        await this.createPeerConnection()
+      }
+      
       this.notifyStateChange()
     })
 
@@ -87,7 +93,7 @@ class WebRTCManager {
     this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidate, roomId: string }) => {
       if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
         try {
-          if (this.isRemoteDescriptionSet) {
+          if (this.isRemoteDescriptionSet && this.peerConnection.remoteDescription) {
             await this.peerConnection.addIceCandidate(data.candidate)
             console.log('ICE candidate added successfully')
           } else {
@@ -97,6 +103,10 @@ class WebRTCManager {
           }
         } catch (error) {
           console.error('Error adding ICE candidate:', error)
+          // Don't fail the call on ICE candidate errors, just log them
+          if (error.name === 'InvalidStateError') {
+            console.log('ICE candidate error - continuing call anyway')
+          }
         }
       }
     })
@@ -113,10 +123,15 @@ class WebRTCManager {
           while (this.pendingIceCandidates.length > 0) {
             const candidate = this.pendingIceCandidates.shift()!
             try {
-              await this.peerConnection.addIceCandidate(candidate)
-              console.log('Pending ICE candidate added successfully')
+              if (this.peerConnection && this.peerConnection.remoteDescription) {
+                await this.peerConnection.addIceCandidate(candidate)
+                console.log('Pending ICE candidate added successfully')
+              } else {
+                console.log('Skipping pending ICE candidate - no remote description')
+              }
             } catch (error) {
               console.error('Error adding pending ICE candidate:', error)
+              // Continue processing other candidates
             }
           }
           
@@ -146,10 +161,15 @@ class WebRTCManager {
           while (this.pendingIceCandidates.length > 0) {
             const candidate = this.pendingIceCandidates.shift()!
             try {
-              await this.peerConnection.addIceCandidate(candidate)
-              console.log('Pending ICE candidate added successfully')
+              if (this.peerConnection && this.peerConnection.remoteDescription) {
+                await this.peerConnection.addIceCandidate(candidate)
+                console.log('Pending ICE candidate added successfully')
+              } else {
+                console.log('Skipping pending ICE candidate - no remote description')
+              }
             } catch (error) {
               console.error('Error adding pending ICE candidate:', error)
+              // Continue processing other candidates
             }
           }
         } catch (error) {
@@ -160,6 +180,12 @@ class WebRTCManager {
   }
 
   private async createPeerConnection() {
+    // Don't create a new connection if one already exists
+    if (this.peerConnection) {
+      console.log('Peer connection already exists, reusing existing connection')
+      return
+    }
+
     const configuration: RTCConfiguration = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -234,6 +260,12 @@ class WebRTCManager {
 
   async startVoiceCall(receiverId: string): Promise<boolean> {
     try {
+      // Don't start a new call if one is already in progress
+      if (this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected) {
+        console.log('Call already in progress, cannot start new call')
+        return false
+      }
+
       // Get user media for voice
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -285,6 +317,12 @@ class WebRTCManager {
     try {
       if (!this.callState.callData) return false
 
+      // Don't accept if already connected or processing
+      if (this.callState.isConnected || this.peerConnection) {
+        console.log('Call already connected or peer connection exists')
+        return false
+      }
+
       console.log('Accepting call, getting user media...')
 
       // Get user media for voice
@@ -313,10 +351,15 @@ class WebRTCManager {
           while (this.pendingIceCandidates.length > 0) {
             const candidate = this.pendingIceCandidates.shift()!
             try {
-              await this.peerConnection!.addIceCandidate(candidate)
-              console.log('Pending ICE candidate added successfully')
+              if (this.peerConnection && this.peerConnection.remoteDescription) {
+                await this.peerConnection.addIceCandidate(candidate)
+                console.log('Pending ICE candidate added successfully')
+              } else {
+                console.log('Skipping pending ICE candidate - no remote description')
+              }
             } catch (error) {
               console.error('Error adding pending ICE candidate:', error)
+              // Continue processing other candidates
             }
           }
           
