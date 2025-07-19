@@ -49,6 +49,7 @@ import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
 import socketManager from "@/lib/socket"
 import WebRTCManager, { CallState, CallData } from "@/lib/webrtc"
 import VoiceCallModal from "@/components/VoiceCallModal"
+import VideoCallModal from "@/components/VideoCallModal"
 import IncomingCallNotification from "@/components/IncomingCallNotification"
 import config from "@/lib/config"
 
@@ -154,7 +155,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
   const [isVoiceCall, setIsVoiceCall] = useState(false)
-  const [isVideoCall, setIsVideoCall] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false)
   const [friendSearchQuery, setFriendSearchQuery] = useState("")
@@ -176,6 +176,7 @@ export default function ChatPage() {
     isConnected: false,
     isMuted: false,
     isSpeakerOn: false,
+    isVideoEnabled: true,
     localStream: null,
     remoteStream: null,
     callData: null
@@ -539,8 +540,19 @@ export default function ChatPage() {
     }
   }
 
-  const startVideoCall = () => {
-    setIsVideoCall(true)
+  const startVideoCall = async () => {
+    if (!selectedContact || !webrtcManager) {
+      console.error('No contact selected or WebRTC manager not initialized')
+      return
+    }
+    
+    console.log('Starting video call with:', selectedContact.name, selectedContact.id)
+    const success = await webrtcManager.startVideoCall(selectedContact.id)
+    if (!success) {
+      console.error('Failed to start video call')
+    } else {
+      console.log('Video call started successfully')
+    }
   }
 
   const endCall = () => {
@@ -548,7 +560,6 @@ export default function ChatPage() {
       webrtcManager.endCall()
     }
     setIsVoiceCall(false)
-    setIsVideoCall(false)
   }
 
   const acceptCall = async () => {
@@ -581,6 +592,12 @@ export default function ChatPage() {
   const toggleSpeaker = () => {
     if (webrtcManager) {
       webrtcManager.toggleSpeaker()
+    }
+  }
+
+  const toggleVideo = () => {
+    if (webrtcManager) {
+      webrtcManager.toggleVideo()
     }
   }
 
@@ -1178,7 +1195,7 @@ export default function ChatPage() {
       </Dialog>
 
       {/* Voice Call Modal */}
-      {selectedContact && (
+      {selectedContact && callState.callData?.callType === 'voice' && (
         <VoiceCallModal
           callState={callState}
           contactName={selectedContact.name}
@@ -1206,47 +1223,16 @@ export default function ChatPage() {
       })()}
 
       {/* Video Call Modal */}
-      {isVideoCall && selectedContact && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
-          <div className="relative w-full h-full max-w-4xl max-h-3xl">
-            {/* Main video */}
-            <div className="w-full h-full bg-gray-900 rounded-lg flex items-center justify-center">
-              <div className="text-center text-white">
-                <Avatar className="h-32 w-32 mx-auto mb-4">
-                  <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
-                  <AvatarFallback className="text-4xl">
-                    {selectedContact.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </AvatarFallback>
-                </Avatar>
-                <h3 className="text-2xl font-semibold mb-2">{selectedContact.name}</h3>
-                <p className="text-gray-300">Video call in progress...</p>
-              </div>
-            </div>
-
-            {/* Self video */}
-            <div className="absolute top-4 right-4 w-48 h-36 bg-gray-800 rounded-lg border-2 border-white">
-              <div className="w-full h-full flex items-center justify-center text-white">
-                <p>Your video</p>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4">
-              <Button variant="ghost" size="sm" className="rounded-full p-3 bg-gray-700 text-white hover:bg-gray-600">
-                <MicOff className="h-5 w-5" />
-              </Button>
-              <Button variant="ghost" size="sm" className="rounded-full p-3 bg-gray-700 text-white hover:bg-gray-600">
-                <VideoOff className="h-5 w-5" />
-              </Button>
-              <Button variant="destructive" size="sm" className="rounded-full p-3" onClick={endCall}>
-                <PhoneOff className="h-5 w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
+      {selectedContact && callState.callData?.callType === 'video' && (
+        <VideoCallModal
+          callState={callState}
+          contactName={selectedContact.name}
+          contactAvatar={selectedContact.avatar}
+          onEnd={endCall}
+          onToggleMute={toggleMute}
+          onToggleVideo={toggleVideo}
+          onToggleSpeaker={toggleSpeaker}
+        />
       )}
 
       {/* Delete History Confirmation */}

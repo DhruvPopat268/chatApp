@@ -13,6 +13,7 @@ export interface CallState {
   isConnected: boolean
   isMuted: boolean
   isSpeakerOn: boolean
+  isVideoEnabled: boolean
   localStream: MediaStream | null
   remoteStream: MediaStream | null
   callData: CallData | null
@@ -29,6 +30,7 @@ class WebRTCManager {
     isConnected: false,
     isMuted: false,
     isSpeakerOn: false,
+    isVideoEnabled: true,
     localStream: null,
     remoteStream: null,
     callData: null
@@ -274,6 +276,7 @@ class WebRTCManager {
 
       this.callState.localStream = this.localStream
       this.callState.isOutgoing = true
+      this.callState.isVideoEnabled = false
       this.callState.callData = {
         callerId: '', // Will be set by server
         receiverId,
@@ -313,6 +316,66 @@ class WebRTCManager {
     }
   }
 
+  async startVideoCall(receiverId: string): Promise<boolean> {
+    try {
+      // Don't start a new call if one is already in progress
+      if (this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected) {
+        console.log('Call already in progress, cannot start new call')
+        return false
+      }
+
+      // Get user media for video
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user'
+        }
+      })
+
+      this.callState.localStream = this.localStream
+      this.callState.isOutgoing = true
+      this.callState.isVideoEnabled = true
+      this.callState.callData = {
+        callerId: '', // Will be set by server
+        receiverId,
+        callType: 'video',
+        roomId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      }
+
+      this.notifyStateChange()
+
+      // Create peer connection
+      await this.createPeerConnection()
+
+      // Create and send offer
+      const offer = await this.peerConnection!.createOffer()
+      await this.peerConnection!.setLocalDescription(offer)
+      console.log('Local description set, sending video offer to receiver')
+
+      // Send call request with offer
+      this.socket.emit('start_call', {
+        receiverId,
+        callType: 'video',
+        roomId: this.callState.callData.roomId,
+        offer
+      })
+
+      // Set timeout for call establishment
+      this.callTimeout = setTimeout(() => {
+        console.log('Call establishment timeout, ending call')
+        this.endCall()
+      }, 30000) // 30 seconds timeout
+
+      return true
+    } catch (error) {
+      console.error('Error starting video call:', error)
+      this.endCall()
+      return false
+    }
+  }
+
   async acceptCall(): Promise<boolean> {
     try {
       if (!this.callState.callData) return false
@@ -325,15 +388,27 @@ class WebRTCManager {
 
       console.log('Accepting call, getting user media...')
 
-      // Get user media for voice
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false
-      })
+      // Get user media based on call type
+      const mediaConstraints = this.callState.callData.callType === 'video' 
+        ? {
+            audio: true,
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: 'user'
+            }
+          }
+        : {
+            audio: true,
+            video: false
+          }
+
+      this.localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
 
       this.callState.localStream = this.localStream
       this.callState.isIncoming = false
       this.callState.isConnected = true
+      this.callState.isVideoEnabled = this.callState.callData.callType === 'video'
 
       this.notifyStateChange()
 
@@ -424,6 +499,7 @@ class WebRTCManager {
       isConnected: false,
       isMuted: false,
       isSpeakerOn: false,
+      isVideoEnabled: true,
       localStream: null,
       remoteStream: null,
       callData: null
@@ -449,6 +525,17 @@ class WebRTCManager {
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled
         this.callState.isMuted = !audioTrack.enabled
+        this.notifyStateChange()
+      }
+    }
+  }
+
+  toggleVideo() {
+    if (this.localStream) {
+      const videoTrack = this.localStream.getVideoTracks()[0]
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled
+        this.callState.isVideoEnabled = videoTrack.enabled
         this.notifyStateChange()
       }
     }
