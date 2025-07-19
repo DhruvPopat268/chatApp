@@ -37,6 +37,8 @@ class WebRTCManager {
   private onCallStateChange: ((state: CallState) => void) | null = null
   private pendingIceCandidates: RTCIceCandidate[] = []
   private isRemoteDescriptionSet = false
+  private pendingOffer: RTCSessionDescriptionInit | null = null
+  private callTimeout: NodeJS.Timeout | null = null
 
   constructor(socket: any) {
     this.socket = socket
@@ -47,10 +49,18 @@ class WebRTCManager {
     if (!this.socket) return
 
     // Handle incoming call
-    this.socket.on('incoming_call', (data: CallData) => {
+    this.socket.on('incoming_call', (data: CallData & { offer?: RTCSessionDescriptionInit }) => {
       console.log('Incoming call received:', data)
       this.callState.isIncoming = true
       this.callState.callData = data
+      
+      // If there's an offer, we need to handle it immediately
+      if (data.offer) {
+        console.log('Offer received with incoming call, will process after accepting')
+        // Store the offer to process after user accepts
+        this.pendingOffer = data.offer
+      }
+      
       this.notifyStateChange()
     })
 
@@ -117,6 +127,10 @@ class WebRTCManager {
         } catch (error) {
           console.error('Error handling offer:', error)
         }
+      } else if (this.callState.callData?.roomId === data.roomId) {
+        // Store offer if peer connection not ready yet
+        console.log('Offer received but peer connection not ready, storing for later')
+        this.pendingOffer = data.offer
       }
     })
 
@@ -194,6 +208,12 @@ class WebRTCManager {
         this.callState.isConnected = true
         this.notifyStateChange()
         console.log('WebRTC connection established successfully!')
+        
+        // Clear timeout on successful connection
+        if (this.callTimeout) {
+          clearTimeout(this.callTimeout)
+          this.callTimeout = null
+        }
       } else if (this.peerConnection?.connectionState === 'failed') {
         console.error('WebRTC connection failed')
       } else if (this.peerConnection?.connectionState === 'disconnected') {
@@ -237,14 +257,21 @@ class WebRTCManager {
       // Create and send offer
       const offer = await this.peerConnection!.createOffer()
       await this.peerConnection!.setLocalDescription(offer)
+      console.log('Local description set, sending offer to receiver')
 
-      // Send call request
+      // Send call request with offer
       this.socket.emit('start_call', {
         receiverId,
         callType: 'voice',
         roomId: this.callState.callData.roomId,
         offer
       })
+
+      // Set timeout for call establishment
+      this.callTimeout = setTimeout(() => {
+        console.log('Call establishment timeout, ending call')
+        this.endCall()
+      }, 30000) // 30 seconds timeout
 
       return true
     } catch (error) {
@@ -257,6 +284,8 @@ class WebRTCManager {
   async acceptCall(): Promise<boolean> {
     try {
       if (!this.callState.callData) return false
+
+      console.log('Accepting call, getting user media...')
 
       // Get user media for voice
       this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -273,7 +302,37 @@ class WebRTCManager {
       // Create peer connection
       await this.createPeerConnection()
 
+      // If we have a pending offer, process it now
+      if (this.pendingOffer) {
+        console.log('Processing pending offer...')
+        try {
+          await this.peerConnection!.setRemoteDescription(this.pendingOffer)
+          this.isRemoteDescriptionSet = true
+          
+          // Add any pending ICE candidates
+          while (this.pendingIceCandidates.length > 0) {
+            const candidate = this.pendingIceCandidates.shift()!
+            try {
+              await this.peerConnection!.addIceCandidate(candidate)
+              console.log('Pending ICE candidate added successfully')
+            } catch (error) {
+              console.error('Error adding pending ICE candidate:', error)
+            }
+          }
+          
+          const answer = await this.peerConnection!.createAnswer()
+          await this.peerConnection!.setLocalDescription(answer)
+          console.log('Sending answer')
+          this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
+          
+          this.pendingOffer = null
+        } catch (error) {
+          console.error('Error processing pending offer:', error)
+        }
+      }
+
       // Accept the call
+      console.log('Sending accept_call signal')
       this.socket.emit('accept_call', {
         roomId: this.callState.callData.roomId
       })
@@ -330,6 +389,13 @@ class WebRTCManager {
     // Reset internal state
     this.pendingIceCandidates = []
     this.isRemoteDescriptionSet = false
+    this.pendingOffer = null
+    
+    // Clear timeout
+    if (this.callTimeout) {
+      clearTimeout(this.callTimeout)
+      this.callTimeout = null
+    }
 
     this.notifyStateChange()
   }

@@ -118,6 +118,8 @@ io.on('connection', (socket) => {
       });
     } else {
       console.log(`Receiver ${receiverId} not found`);
+      // Notify caller that receiver is not available
+      socket.emit('call_failed', { reason: 'User not online' });
     }
   });
 
