@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,11 +25,14 @@ import {
   MicOff,
   Trash2,
   UserPlus,
-  Users,
   LogOut,
-  Settings,
   ChevronLeft,
   ChevronRight,
+  User,
+  Camera,
+  Edit,
+  Save,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -38,6 +43,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { signOut } from "@/lib/auth"
 
 interface Contact {
@@ -70,6 +76,8 @@ interface FriendRequest {
 interface CurrentUser {
   username: string
   avatar: string
+  email: string
+  bio: string
 }
 
 const contacts: Contact[] = [
@@ -179,12 +187,21 @@ export default function ChatPage() {
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false)
   const [friendSearchQuery, setFriendSearchQuery] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [currentUser, setCurrentUser] = useState<CurrentUser>({
-    username: "You",
+    username: "John Doe",
     avatar: "/placeholder.svg?height=40&width=40",
+    email: "john.doe@example.com",
+    bio: "Hey there! I'm using this chat app.",
   })
+  const [editedUser, setEditedUser] = useState<CurrentUser>(currentUser)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLInputElement>(null)
+  const chatContainerRef = useRef<HTMLDivElement>(null)
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen)
@@ -194,9 +211,77 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
+  // Handle virtual keyboard on mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (typeof window !== "undefined") {
+        const windowHeight = window.innerHeight
+        const documentHeight = document.documentElement.clientHeight
+
+        // Detect if virtual keyboard is open (significant height difference)
+        const keyboardOpen = windowHeight < documentHeight * 0.75
+        setIsKeyboardVisible(keyboardOpen)
+
+        // Scroll to bottom when keyboard opens/closes
+        if (keyboardOpen) {
+          setTimeout(() => {
+            scrollToBottom()
+            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+          }, 100)
+        }
+      }
+    }
+
+    const handleVisualViewportChange = () => {
+      if (typeof window !== "undefined" && window.visualViewport) {
+        const viewport = window.visualViewport
+        const keyboardOpen = viewport.height < window.innerHeight * 0.75
+        setIsKeyboardVisible(keyboardOpen)
+
+        if (keyboardOpen) {
+          setTimeout(() => {
+            scrollToBottom()
+            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+          }, 100)
+        }
+      }
+    }
+
+    // Listen for window resize (fallback for older browsers)
+    window.addEventListener("resize", handleResize)
+
+    // Listen for visual viewport changes (modern browsers)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleVisualViewportChange)
+    }
+
+    // Initial check
+    handleResize()
+
+    return () => {
+      window.removeEventListener("resize", handleResize)
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleVisualViewportChange)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Handle input focus for mobile
+  const handleInputFocus = () => {
+    setTimeout(() => {
+      if (messageInputRef.current) {
+        messageInputRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        })
+      }
+    }, 300) // Delay to allow keyboard animation
+  }
 
   const sendMessage = () => {
     if (!newMessage.trim()) return
@@ -225,6 +310,30 @@ export default function ChatPage() {
     }
 
     setMessages([...messages, message])
+  }
+
+  const handleAvatarUpload = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      // In a real app, you would upload the file to a server
+      // For now, we'll just create a local URL
+      const imageUrl = URL.createObjectURL(file)
+      setEditedUser({ ...editedUser, avatar: imageUrl })
+    }
+  }
+
+  const saveProfile = () => {
+    setCurrentUser(editedUser)
+    setIsEditingProfile(false)
+  }
+
+  const cancelEdit = () => {
+    setEditedUser(currentUser)
+    setIsEditingProfile(false)
   }
 
   const startVoiceCall = () => {
@@ -260,7 +369,7 @@ export default function ChatPage() {
   const filteredContacts = contacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   return (
-    <div className="flex h-screen bg-gray-50 relative">
+    <div className="flex h-screen bg-gray-50 relative overflow-hidden">
       {/* Mobile Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />
@@ -418,13 +527,9 @@ export default function ChatPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
-                        <DropdownMenuItem>
-                          <Settings className="h-4 w-4 mr-2" />
-                          Settings
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Users className="h-4 w-4 mr-2" />
-                          Manage Groups
+                        <DropdownMenuItem onClick={() => setIsProfileOpen(true)}>
+                          <User className="h-4 w-4 mr-2" />
+                          My Profile
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
@@ -517,13 +622,9 @@ export default function ChatPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="right">
-                  <DropdownMenuItem>
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Users className="h-4 w-4 mr-2" />
-                    Manage Groups
+                  <DropdownMenuItem onClick={() => setIsProfileOpen(true)}>
+                    <User className="h-4 w-4 mr-2" />
+                    My Profile
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="text-red-600">
@@ -538,9 +639,18 @@ export default function ChatPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div
+        ref={chatContainerRef}
+        className={cn("flex-1 flex flex-col relative", isKeyboardVisible && "pb-safe-area-inset-bottom")}
+        style={{
+          height:
+            isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
+              ? `${window.visualViewport.height}px`
+              : "100vh",
+        }}
+      >
         {/* Chat Header */}
-        <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+        <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center">
             <Avatar className="h-10 w-10">
               <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
@@ -570,9 +680,6 @@ export default function ChatPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem>View Profile</DropdownMenuItem>
-                <DropdownMenuItem>Mute Notifications</DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-red-600" onClick={() => setShowDeleteConfirm(true)}>
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Chat History
@@ -583,45 +690,58 @@ export default function ChatPage() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4">
-            {messages.map((message) => (
-              <div key={message.id} className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}>
+        <div className="flex-1 overflow-hidden">
+          <ScrollArea className="h-full p-4">
+            <div className="space-y-4 pb-4">
+              {messages.map((message) => (
                 <div
-                  className={cn(
-                    "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
-                    message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
-                  )}
+                  key={message.id}
+                  className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
                 >
-                  {message.type === "text" && <p className="text-sm">{message.content}</p>}
-                  {message.type === "image" && (
-                    <div className="space-y-2">
-                      <img
-                        src="/placeholder.svg?height=200&width=300"
-                        alt="Shared image"
-                        className="rounded-lg max-w-full h-auto"
-                      />
-                    </div>
-                  )}
-                  {message.type === "file" && (
-                    <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-                      <File className="h-8 w-8 text-blue-500" />
-                      <div>
-                        <p className="text-sm font-medium">{message.fileName}</p>
-                        <p className="text-xs text-gray-500">{message.fileSize}</p>
+                  <div
+                    className={cn(
+                      "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
+                      message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
+                    )}
+                  >
+                    {message.type === "text" && <p className="text-sm">{message.content}</p>}
+                    {message.type === "image" && (
+                      <div className="space-y-2">
+                        <img
+                          src="/placeholder.svg?height=200&width=300"
+                          alt="Shared image"
+                          className="rounded-lg max-w-full h-auto"
+                        />
                       </div>
-                    </div>
-                  )}
-                  <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                    )}
+                    {message.type === "file" && (
+                      <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                        <File className="h-8 w-8 text-blue-500" />
+                        <div>
+                          <p className="text-sm font-medium">{message.fileName}</p>
+                          <p className="text-xs text-gray-500">{message.fileSize}</p>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        </ScrollArea>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          </ScrollArea>
+        </div>
 
-        {/* Message Input */}
-        <div className="bg-white border-t border-gray-200 p-4">
+        {/* Message Input - Fixed at bottom */}
+        <div
+          className={cn(
+            "bg-white border-t border-gray-200 p-4 flex-shrink-0",
+            isKeyboardVisible && "sticky bottom-0 z-10",
+          )}
+          style={{
+            paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
+          }}
+        >
           <div className="flex items-center space-x-2">
             <Button variant="ghost" size="sm" onClick={() => handleFileUpload("image")}>
               <ImageIcon className="h-4 w-4" />
@@ -631,11 +751,16 @@ export default function ChatPage() {
             </Button>
             <div className="flex-1 relative">
               <Input
+                ref={messageInputRef}
                 placeholder="Type a message..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                onFocus={handleInputFocus}
                 className="pr-20"
+                style={{
+                  fontSize: "16px", // Prevents zoom on iOS
+                }}
               />
               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
                 <Button variant="ghost" size="sm">
@@ -653,6 +778,110 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {/* Profile Modal */}
+      <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>My Profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Avatar Section */}
+            <div className="flex flex-col items-center space-y-4">
+              <div className="relative">
+                <Avatar className="h-24 w-24">
+                  <AvatarImage src={isEditingProfile ? editedUser.avatar : currentUser.avatar} />
+                  <AvatarFallback className="text-2xl">
+                    {(isEditingProfile ? editedUser.username : currentUser.username)
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")}
+                  </AvatarFallback>
+                </Avatar>
+                {isEditingProfile && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="absolute -bottom-2 -right-2 rounded-full h-8 w-8 p-0 bg-transparent"
+                    onClick={handleAvatarUpload}
+                  >
+                    <Camera className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+            </div>
+
+            {/* Profile Information */}
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="username">Username</Label>
+                {isEditingProfile ? (
+                  <Input
+                    id="username"
+                    value={editedUser.username}
+                    onChange={(e) => setEditedUser({ ...editedUser, username: e.target.value })}
+                    className="mt-1"
+                  />
+                ) : (
+                  <p className="mt-1 text-sm text-gray-600">{currentUser.username}</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="email">Email</Label>
+                {isEditingProfile ? (
+                  <Input
+                    id="email"
+                    type="email"
+                    value={editedUser.email}
+                    onChange={(e) => setEditedUser({ ...editedUser, email: e.target.value })}
+                    className="mt-1"
+                  />
+                ) : (
+                  <p className="mt-1 text-sm text-gray-600">{currentUser.email}</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="bio">Bio</Label>
+                {isEditingProfile ? (
+                  <Input
+                    id="bio"
+                    value={editedUser.bio}
+                    onChange={(e) => setEditedUser({ ...editedUser, bio: e.target.value })}
+                    className="mt-1"
+                    placeholder="Tell us about yourself..."
+                  />
+                ) : (
+                  <p className="mt-1 text-sm text-gray-600">{currentUser.bio}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-2">
+              {isEditingProfile ? (
+                <>
+                  <Button variant="outline" onClick={cancelEdit}>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button onClick={saveProfile}>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save
+                  </Button>
+                </>
+              ) : (
+                <Button onClick={() => setIsEditingProfile(true)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Profile
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Voice Call Modal */}
       {isVoiceCall && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -662,7 +891,6 @@ export default function ChatPage() {
               <AvatarFallback className="text-2xl">
                 {selectedContact.name
                   .split(" ")
-                  .map(" ")
                   .map((n) => n[0])
                   .join("")}
               </AvatarFallback>
