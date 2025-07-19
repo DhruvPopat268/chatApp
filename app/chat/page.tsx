@@ -33,6 +33,7 @@ import {
   Edit,
   Save,
   X,
+  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -44,7 +45,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { signOut } from "@/lib/auth"
+import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
+import socketManager from "@/lib/socket"
+import WebRTCManager, { CallState, CallData } from "@/lib/webrtc"
+import VoiceCallModal from "@/components/VoiceCallModal"
+import IncomingCallNotification from "@/components/IncomingCallNotification"
 
 interface Contact {
   id: string
@@ -66,14 +71,16 @@ interface Message {
   fileSize?: string
 }
 
-interface FriendRequest {
-  id: string
-  name: string
-  avatar: string
-  mutualFriends: number
+interface ApiUser {
+  _id: string
+  username: string
+  email: string
+  createdAt: string
+  updatedAt: string
 }
 
 interface CurrentUser {
+  id: string
   username: string
   avatar: string
   email: string
@@ -141,44 +148,8 @@ const initialMessages: Message[] = [
   },
 ]
 
-const friendRequests: FriendRequest[] = [
-  {
-    id: "fr1",
-    name: "Emma Wilson",
-    avatar: "/placeholder.svg?height=40&width=40",
-    mutualFriends: 3,
-  },
-  {
-    id: "fr2",
-    name: "David Brown",
-    avatar: "/placeholder.svg?height=40&width=40",
-    mutualFriends: 1,
-  },
-  {
-    id: "fr3",
-    name: "Sarah Miller",
-    avatar: "/placeholder.svg?height=40&width=40",
-    mutualFriends: 5,
-  },
-]
-
-const suggestedUsers: { id: string; name: string; avatar: string; online: boolean }[] = [
-  {
-    id: "su1",
-    name: "John Doe",
-    avatar: "/placeholder.svg?height=40&width=40",
-    online: true,
-  },
-  {
-    id: "su2",
-    name: "Jane Smith",
-    avatar: "/placeholder.svg?height=40&width=40",
-    online: false,
-  },
-]
-
 export default function ChatPage() {
-  const [selectedContact, setSelectedContact] = useState<Contact>(contacts[0])
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
   const [isVoiceCall, setIsVoiceCall] = useState(false)
@@ -189,19 +160,144 @@ export default function ChatPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
-  const [currentUser, setCurrentUser] = useState<CurrentUser>({
-    username: "John Doe",
-    avatar: "/placeholder.svg?height=40&width=40",
-    email: "john.doe@example.com",
-    bio: "Hey there! I'm using this chat app.",
-  })
-  const [editedUser, setEditedUser] = useState<CurrentUser>(currentUser)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [editedUser, setEditedUser] = useState<CurrentUser | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [searchedUsers, setSearchedUsers] = useState<ApiUser[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [userContacts, setUserContacts] = useState<Contact[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false)
+  const [callState, setCallState] = useState<CallState>({
+    isIncoming: false,
+    isOutgoing: false,
+    isConnected: false,
+    isMuted: false,
+    isSpeakerOn: false,
+    localStream: null,
+    remoteStream: null,
+    callData: null
+  })
+  const [webrtcManager, setWebrtcManager] = useState<WebRTCManager | null>(null)
+  const [incomingCallData, setIncomingCallData] = useState<CallData | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
+
+  // Initialize user and contacts
+  useEffect(() => {
+    const initializeApp = async () => {
+      const user = getCurrentUser()
+      if (!user) {
+        window.location.href = '/login'
+        return
+      }
+
+      const currentUserData: CurrentUser = {
+        id: user.id,
+        username: user.username || "Unknown User",
+        email: user.email || "",
+        avatar: user.avatar || "/placeholder.svg?height=40&width=40",
+        bio: "Hey there! I'm using this chat app.",
+      }
+      
+      setCurrentUser(currentUserData)
+      setEditedUser(currentUserData)
+
+      // Connect to Socket.IO
+      const socket = socketManager.connect()
+      
+      // Initialize WebRTC manager
+      if (socket) {
+        const manager = new WebRTCManager(socket)
+        manager.onStateChange((state) => {
+          setCallState(state)
+          // Handle incoming call notification
+          if (state.isIncoming && state.callData) {
+            setIncomingCallData(state.callData)
+          } else if (!state.isIncoming) {
+            setIncomingCallData(null)
+          }
+        })
+        setWebrtcManager(manager)
+      }
+
+      // Load contacts
+      try {
+        const response = await authenticatedFetch('http://localhost:7000/api/contacts')
+        if (response.ok) {
+          const contacts = await response.json()
+          setUserContacts(contacts)
+          if (contacts.length > 0 && !selectedContact) {
+            const firstContact = contacts[0]
+            setSelectedContact(firstContact)
+            // Load messages for the first contact
+            loadMessages(firstContact.id)
+          }
+        } else {
+          console.error('Failed to load contacts')
+        }
+      } catch (error) {
+        console.error('Error loading contacts:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initializeApp()
+
+    // Cleanup on unmount
+    return () => {
+      if (webrtcManager) {
+        webrtcManager.endCall()
+      }
+      socketManager.disconnect()
+    }
+  }, [])
+
+  // Search users from API
+  const searchUsers = async (query: string) => {
+    if (!query.trim() || !currentUser) {
+      setSearchedUsers([])
+      return
+    }
+
+    setIsSearching(true)
+    try {
+      const response = await fetch(`http://localhost:7000/api/auth?username=${encodeURIComponent(query)}`)
+      if (response.ok) {
+        const users = await response.json()
+        // Ensure users is an array
+        const usersArray = Array.isArray(users) ? users : []
+        // Filter out the current user and already added contacts
+        const filteredUsers = usersArray.filter((user: ApiUser) => {
+          const isNotCurrentUser = user.username !== currentUser.username
+          const isNotAlreadyContact = !userContacts.some(contact => contact.id === user._id)
+          return isNotCurrentUser && isNotAlreadyContact
+        })
+        setSearchedUsers(filteredUsers)
+      } else {
+        console.error('Failed to search users:', response.status)
+        setSearchedUsers([])
+      }
+    } catch (error) {
+      console.error('Error searching users:', error)
+      setSearchedUsers([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      searchUsers(friendSearchQuery)
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [friendSearchQuery])
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen)
@@ -270,6 +366,80 @@ export default function ChatPage() {
     scrollToBottom()
   }, [messages])
 
+  // Socket.IO event listeners
+  useEffect(() => {
+    if (!currentUser) return
+
+    // Listen for new messages
+    socketManager.onNewMessage((message) => {
+      console.log('New message received:', message)
+      
+      // Add message to the current conversation if it matches
+      if (selectedContact && 
+          (message.senderId._id === selectedContact.id || message.receiverId._id === selectedContact.id)) {
+        const newMessage: Message = {
+          id: message._id,
+          senderId: message.senderId._id === currentUser.id ? "me" : message.senderId._id,
+          content: message.content,
+          timestamp: new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: message.type,
+          fileName: message.fileName,
+          fileSize: message.fileSize,
+        }
+        setMessages(prev => [...prev, newMessage])
+      }
+
+      // Update contact's last message
+      setUserContacts(prev => prev.map(contact => {
+        if (contact.id === message.senderId._id) {
+          return {
+            ...contact,
+            lastMessage: message.content,
+            timestamp: "Just now",
+            unread: contact.unread + 1
+          }
+        }
+        return contact
+      }))
+    })
+
+    // Listen for message sent confirmation
+    socketManager.onMessageSent((message) => {
+      console.log('Message sent successfully:', message)
+    })
+
+    // Listen for message errors
+    socketManager.onMessageError((error) => {
+      console.error('Message error:', error)
+    })
+
+    // Listen for typing indicators
+    socketManager.onUserTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        // You can add a typing indicator state here
+        console.log('User is typing...')
+      }
+    })
+
+    socketManager.onUserStoppedTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        // You can remove typing indicator here
+        console.log('User stopped typing')
+      }
+    })
+
+    return () => {
+      socketManager.removeAllListeners()
+    }
+  }, [currentUser, selectedContact])
+
+  // Load messages when selectedContact changes
+  useEffect(() => {
+    if (selectedContact && currentUser) {
+      loadMessages(selectedContact.id)
+    }
+  }, [selectedContact?.id, currentUser?.id])
+
   // Handle input focus for mobile
   const handleInputFocus = () => {
     setTimeout(() => {
@@ -284,8 +454,12 @@ export default function ChatPage() {
   }
 
   const sendMessage = () => {
-    if (!newMessage.trim()) return
+    if (!newMessage.trim() || !selectedContact || !currentUser) return
 
+    // Send message via Socket.IO
+    socketManager.sendMessage(selectedContact.id, newMessage, "text")
+
+    // Add message to local state immediately for optimistic UI
     const message: Message = {
       id: Date.now().toString(),
       senderId: "me",
@@ -294,8 +468,21 @@ export default function ChatPage() {
       type: "text",
     }
 
-    setMessages([...messages, message])
+    setMessages(prev => [...prev, message])
     setNewMessage("")
+
+    // Update contact's last message
+    setUserContacts(prev => prev.map(contact => {
+      if (contact.id === selectedContact.id) {
+        return {
+          ...contact,
+          lastMessage: newMessage,
+          timestamp: "Just now",
+          unread: 0
+        }
+      }
+      return contact
+    }))
   }
 
   const handleFileUpload = (type: "image" | "file") => {
@@ -318,7 +505,7 @@ export default function ChatPage() {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (file) {
+    if (file && editedUser) {
       // In a real app, you would upload the file to a server
       // For now, we'll just create a local URL
       const imageUrl = URL.createObjectURL(file)
@@ -336,8 +523,19 @@ export default function ChatPage() {
     setIsEditingProfile(false)
   }
 
-  const startVoiceCall = () => {
-    setIsVoiceCall(true)
+  const startVoiceCall = async () => {
+    if (!selectedContact || !webrtcManager) {
+      console.error('No contact selected or WebRTC manager not initialized')
+      return
+    }
+    
+    console.log('Starting voice call with:', selectedContact.name, selectedContact.id)
+    const success = await webrtcManager.startVoiceCall(selectedContact.id)
+    if (!success) {
+      console.error('Failed to start voice call')
+    } else {
+      console.log('Voice call started successfully')
+    }
   }
 
   const startVideoCall = () => {
@@ -345,12 +543,107 @@ export default function ChatPage() {
   }
 
   const endCall = () => {
+    if (webrtcManager) {
+      webrtcManager.endCall()
+    }
     setIsVoiceCall(false)
     setIsVideoCall(false)
   }
 
-  const addFriend = (userId: string) => {
-    console.log("Adding friend:", userId)
+  const acceptCall = async () => {
+    if (!webrtcManager) {
+      console.error('WebRTC manager not initialized')
+      return
+    }
+    
+    console.log('Accepting incoming call')
+    const success = await webrtcManager.acceptCall()
+    if (!success) {
+      console.error('Failed to accept call')
+    } else {
+      console.log('Call accepted successfully')
+    }
+  }
+
+  const rejectCall = () => {
+    if (webrtcManager) {
+      webrtcManager.rejectCall()
+    }
+  }
+
+  const toggleMute = () => {
+    if (webrtcManager) {
+      webrtcManager.toggleMute()
+    }
+  }
+
+  const toggleSpeaker = () => {
+    if (webrtcManager) {
+      webrtcManager.toggleSpeaker()
+    }
+  }
+
+  const addFriend = async (user: ApiUser) => {
+    try {
+      const response = await authenticatedFetch('http://localhost:7000/api/contacts', {
+        method: 'POST',
+        body: JSON.stringify({ contactId: user._id }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const newContact: Contact = {
+          id: user._id,
+          name: user.username,
+          avatar: "/placeholder.svg?height=40&width=40",
+          lastMessage: "",
+          timestamp: "Just now",
+          online: false,
+          unread: 0,
+        }
+        
+        setUserContacts(prev => [...prev, newContact])
+        setSearchedUsers(prev => prev.filter(u => u._id !== user._id))
+        setFriendSearchQuery("")
+        
+        // Show success feedback
+        console.log(`Added ${user.username} to contacts`)
+      } else {
+        const error = await response.json()
+        console.error('Failed to add contact:', error.error)
+      }
+    } catch (error) {
+      console.error('Error adding contact:', error)
+    }
+  }
+
+  // Load messages for a contact
+  const loadMessages = async (contactId: string) => {
+    setIsLoadingMessages(true)
+    try {
+      const response = await authenticatedFetch(`http://localhost:7000/api/messages/${contactId}`)
+      if (response.ok) {
+        const messagesData = await response.json()
+        const formattedMessages: Message[] = messagesData.map((msg: any) => ({
+          id: msg._id,
+          senderId: msg.senderId._id === currentUser?.id ? "me" : msg.senderId._id,
+          content: msg.content,
+          timestamp: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: msg.type,
+          fileName: msg.fileName,
+          fileSize: msg.fileSize,
+        }))
+        setMessages(formattedMessages)
+      } else {
+        console.error('Failed to load messages')
+        setMessages([])
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+      setMessages([])
+    } finally {
+      setIsLoadingMessages(false)
+    }
   }
 
   const deleteHistory = () => {
@@ -359,14 +652,23 @@ export default function ChatPage() {
   }
 
   const handleLogout = async () => {
-    await signOut()
+    await logout()
+    window.location.href = '/login'
   }
 
-  const filteredSuggestedUsers = suggestedUsers.filter((user) =>
-    user.name.toLowerCase().includes(friendSearchQuery.toLowerCase()),
-  )
+  const filteredContacts = userContacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
-  const filteredContacts = contacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  // Show loading state
+  if (isLoading || !currentUser) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Loading...</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
@@ -433,89 +735,60 @@ export default function ChatPage() {
                           <DialogTitle>Add Friends</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                            <Input
-                              placeholder="Search people..."
-                              value={friendSearchQuery}
-                              onChange={(e) => setFriendSearchQuery(e.target.value)}
-                              className="pl-10"
-                            />
-                          </div>
+                                                      <div className="relative">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                              <Input
+                                placeholder="Search people..."
+                                value={friendSearchQuery}
+                                onChange={(e) => setFriendSearchQuery(e.target.value)}
+                                className="pl-10"
+                              />
+                            </div>
 
-                          {/* Friend Requests */}
-                          {friendRequests.length > 0 && (
+                                                    {/* Searched Users */}
+                          {friendSearchQuery.trim() && (
                             <div>
-                              <h3 className="text-sm font-medium text-gray-700 mb-2">Friend Requests</h3>
-                              <div className="space-y-2">
-                                {friendRequests.map((request) => (
-                                  <div
-                                    key={request.id}
-                                    className="flex items-center justify-between p-2 rounded-lg border"
-                                  >
-                                    <div className="flex items-center space-x-3">
-                                      <Avatar className="h-8 w-8">
-                                        <AvatarImage src={request.avatar || "/placeholder.svg"} />
-                                        <AvatarFallback>
-                                          {request.name
-                                            .split(" ")
-                                            .map((n) => n[0])
-                                            .join("")}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div>
-                                        <p className="text-sm font-medium">{request.name}</p>
-                                        <p className="text-xs text-gray-500">{request.mutualFriends} mutual friends</p>
+                              <h3 className="text-sm font-medium text-gray-700 mb-2">Search Results</h3>
+                              {isSearching ? (
+                                <div className="flex items-center justify-center py-4">
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                  <span className="text-sm text-gray-500">Searching...</span>
+                                </div>
+                              ) : searchedUsers.length > 0 ? (
+                                <div className="space-y-2">
+                                  {searchedUsers.map((user) => (
+                                    <div key={user._id} className="flex items-center justify-between p-2 rounded-lg border">
+                                      <div className="flex items-center space-x-3">
+                                        <Avatar className="h-8 w-8">
+                                          <AvatarImage src="/placeholder.svg" />
+                                          <AvatarFallback>
+                                            {user.username
+                                              .split(" ")
+                                              .map((n) => n[0])
+                                              .join("")}
+                                          </AvatarFallback>
+                                        </Avatar>
+                                        <div>
+                                          <p className="text-sm font-medium">{user.username}</p>
+                                          <p className="text-xs text-gray-500">{user.email}</p>
+                                        </div>
                                       </div>
-                                    </div>
-                                    <div className="flex space-x-1">
-                                      <Button size="sm" variant="default" onClick={() => addFriend(request.id)}>
-                                        Accept
-                                      </Button>
-                                      <Button size="sm" variant="outline">
-                                        Decline
+                                      <Button size="sm" variant="outline" onClick={() => addFriend(user)}>
+                                        <UserPlus className="h-3 w-3 mr-1" />
+                                        Add
                                       </Button>
                                     </div>
-                                  </div>
-                                ))}
-                              </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-center py-4">
+                                  <p className="text-sm text-gray-500">No users found</p>
+                                </div>
+                              )}
                             </div>
                           )}
 
-                          {/* Suggested Users */}
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-700 mb-2">Suggested</h3>
-                            <div className="space-y-2">
-                              {filteredSuggestedUsers.map((user) => (
-                                <div key={user.id} className="flex items-center justify-between p-2 rounded-lg border">
-                                  <div className="flex items-center space-x-3">
-                                    <div className="relative">
-                                      <Avatar className="h-8 w-8">
-                                        <AvatarImage src={user.avatar || "/placeholder.svg"} />
-                                        <AvatarFallback>
-                                          {user.name
-                                            .split(" ")
-                                            .map((n) => n[0])
-                                            .join("")}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      {user.online && (
-                                        <div className="absolute bottom-0 right-0 h-2 w-2 bg-green-500 border border-white rounded-full"></div>
-                                      )}
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium">{user.name}</p>
-                                      <p className="text-xs text-gray-500">{user.online ? "Online" : "Offline"}</p>
-                                    </div>
-                                  </div>
-                                  <Button size="sm" variant="outline" onClick={() => addFriend(user.id)}>
-                                    <UserPlus className="h-3 w-3 mr-1" />
-                                    Add
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+
                         </div>
                       </DialogContent>
                     </Dialog>
@@ -557,10 +830,12 @@ export default function ChatPage() {
                   {filteredContacts.map((contact) => (
                     <div
                       key={contact.id}
-                      onClick={() => setSelectedContact(contact)}
+                      onClick={() => {
+                        setSelectedContact(contact)
+                      }}
                       className={cn(
                         "flex items-center p-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors",
-                        selectedContact.id === contact.id && "bg-blue-50 border border-blue-200",
+                        selectedContact?.id === contact.id && "bg-blue-50 border border-blue-200",
                       )}
                     >
                       <div className="relative">
@@ -652,19 +927,27 @@ export default function ChatPage() {
         {/* Chat Header */}
         <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center">
-            <Avatar className="h-10 w-10">
-              <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
-              <AvatarFallback>
-                {selectedContact.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")}
-              </AvatarFallback>
-            </Avatar>
-            <div className="ml-3">
-              <h2 className="text-lg font-semibold">{selectedContact.name}</h2>
-              <p className="text-sm text-gray-500">{selectedContact.online ? "Online" : "Last seen 2 hours ago"}</p>
-            </div>
+            {selectedContact ? (
+              <>
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
+                  <AvatarFallback>
+                    {selectedContact.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="ml-3">
+                  <h2 className="text-lg font-semibold">{selectedContact.name}</h2>
+                  <p className="text-sm text-gray-500">{selectedContact.online ? "Online" : "Last seen 2 hours ago"}</p>
+                </div>
+              </>
+            ) : (
+              <div className="ml-3">
+                <h2 className="text-lg font-semibold">Select a contact to start chatting</h2>
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="ghost" size="sm" onClick={startVoiceCall}>
@@ -693,40 +976,51 @@ export default function ChatPage() {
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full p-4">
             <div className="space-y-4 pb-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
-                >
-                  <div
-                    className={cn(
-                      "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
-                      message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
-                    )}
-                  >
-                    {message.type === "text" && <p className="text-sm">{message.content}</p>}
-                    {message.type === "image" && (
-                      <div className="space-y-2">
-                        <img
-                          src="/placeholder.svg?height=200&width=300"
-                          alt="Shared image"
-                          className="rounded-lg max-w-full h-auto"
-                        />
-                      </div>
-                    )}
-                    {message.type === "file" && (
-                      <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-                        <File className="h-8 w-8 text-blue-500" />
-                        <div>
-                          <p className="text-sm font-medium">{message.fileName}</p>
-                          <p className="text-xs text-gray-500">{message.fileSize}</p>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
-                  </div>
+              {isLoadingMessages ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <span className="text-sm text-gray-500">Loading messages...</span>
                 </div>
-              ))}
+              ) : messages.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-sm text-gray-500">No messages yet. Start a conversation!</span>
+                </div>
+              ) : (
+                                messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
+                  >
+                    <div
+                      className={cn(
+                        "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
+                        message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
+                      )}
+                    >
+                      {message.type === "text" && <p className="text-sm">{message.content}</p>}
+                      {message.type === "image" && (
+                        <div className="space-y-2">
+                          <img
+                            src="/placeholder.svg?height=200&width=300"
+                            alt="Shared image"
+                            className="rounded-lg max-w-full h-auto"
+                          />
+                        </div>
+                      )}
+                      {message.type === "file" && (
+                        <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                          <File className="h-8 w-8 text-blue-500" />
+                          <div>
+                            <p className="text-sm font-medium">{message.fileName}</p>
+                            <p className="text-xs text-gray-500">{message.fileSize}</p>
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                    </div>
+                  </div>
+                ))
+              )}
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
@@ -789,9 +1083,9 @@ export default function ChatPage() {
             <div className="flex flex-col items-center space-y-4">
               <div className="relative">
                 <Avatar className="h-24 w-24">
-                  <AvatarImage src={isEditingProfile ? editedUser.avatar : currentUser.avatar} />
+                  <AvatarImage src={isEditingProfile && editedUser ? editedUser.avatar : currentUser.avatar} />
                   <AvatarFallback className="text-2xl">
-                    {(isEditingProfile ? editedUser.username : currentUser.username)
+                    {(isEditingProfile && editedUser ? editedUser.username : currentUser.username)
                       .split(" ")
                       .map((n) => n[0])
                       .join("")}
@@ -815,7 +1109,7 @@ export default function ChatPage() {
             <div className="space-y-4">
               <div>
                 <Label htmlFor="username">Username</Label>
-                {isEditingProfile ? (
+                {isEditingProfile && editedUser ? (
                   <Input
                     id="username"
                     value={editedUser.username}
@@ -829,7 +1123,7 @@ export default function ChatPage() {
 
               <div>
                 <Label htmlFor="email">Email</Label>
-                {isEditingProfile ? (
+                {isEditingProfile && editedUser ? (
                   <Input
                     id="email"
                     type="email"
@@ -844,7 +1138,7 @@ export default function ChatPage() {
 
               <div>
                 <Label htmlFor="bio">Bio</Label>
-                {isEditingProfile ? (
+                {isEditingProfile && editedUser ? (
                   <Input
                     id="bio"
                     value={editedUser.bio}
@@ -883,34 +1177,35 @@ export default function ChatPage() {
       </Dialog>
 
       {/* Voice Call Modal */}
-      {isVoiceCall && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="w-80 p-6 text-center">
-            <Avatar className="h-24 w-24 mx-auto mb-4">
-              <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
-              <AvatarFallback className="text-2xl">
-                {selectedContact.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")}
-              </AvatarFallback>
-            </Avatar>
-            <h3 className="text-xl font-semibold mb-2">{selectedContact.name}</h3>
-            <p className="text-gray-500 mb-6">Voice call in progress...</p>
-            <div className="flex justify-center space-x-4">
-              <Button variant="ghost" size="sm" className="rounded-full p-3">
-                <MicOff className="h-5 w-5" />
-              </Button>
-              <Button variant="destructive" size="sm" className="rounded-full p-3" onClick={endCall}>
-                <PhoneOff className="h-5 w-5" />
-              </Button>
-            </div>
-          </Card>
-        </div>
+      {selectedContact && (
+        <VoiceCallModal
+          callState={callState}
+          contactName={selectedContact.name}
+          contactAvatar={selectedContact.avatar}
+          onAccept={acceptCall}
+          onReject={rejectCall}
+          onEnd={endCall}
+          onToggleMute={toggleMute}
+          onToggleSpeaker={toggleSpeaker}
+        />
       )}
 
+      {/* Incoming Call Notification */}
+      {incomingCallData && (() => {
+        const callerContact = userContacts.find(contact => contact.id === incomingCallData.callerId)
+        return (
+          <IncomingCallNotification
+            callData={incomingCallData}
+            contactName={callerContact?.name || incomingCallData.callerId}
+            contactAvatar={callerContact?.avatar || "/placeholder.svg"}
+            onAccept={acceptCall}
+            onReject={rejectCall}
+          />
+        )
+      })()}
+
       {/* Video Call Modal */}
-      {isVideoCall && (
+      {isVideoCall && selectedContact && (
         <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <div className="relative w-full h-full max-w-4xl max-h-3xl">
             {/* Main video */}
@@ -954,7 +1249,7 @@ export default function ChatPage() {
       )}
 
       {/* Delete History Confirmation */}
-      {showDeleteConfirm && (
+      {showDeleteConfirm && selectedContact && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <Card className="w-96 p-6">
             <h3 className="text-lg font-semibold mb-2">Delete Chat History</h3>

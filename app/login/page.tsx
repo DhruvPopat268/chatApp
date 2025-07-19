@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import { signIn } from "@/lib/auth"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,23 +8,36 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, MessageCircle } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from 'next/navigation'
+import { login, getCurrentUser } from "@/lib/clientAuth"
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const router = useRouter()
 
+  // Check if user is already logged in
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user) {
+      router.push('/chat')
+    }
+  }, [router])
   async function handleSubmit(formData: FormData) {
     setIsLoading(true)
     setError("")
 
     try {
-      const result = await signIn(formData)
-      if (result?.error) {
-        setError(result.error)
-      }
+      const username = formData.get("username") as string
+      const password = formData.get("password") as string
+
+      await login(username, password)
+      router.push('/chat')
+       
     } catch (err) {
-      setError("An unexpected error occurred")
+      console.error(err)
+      setError(err instanceof Error ? err.message : "Login failed")
     } finally {
       setIsLoading(false)
     }

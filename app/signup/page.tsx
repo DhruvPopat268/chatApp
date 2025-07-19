@@ -1,144 +1,110 @@
-"use client"
-
-import { useState } from "react"
-import { signUp } from "@/lib/auth"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Eye, EyeOff, MessageCircle, Check } from "lucide-react"
-import Link from "next/link"
+'use client';
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { getCurrentUser } from '@/lib/clientAuth';
 
 export default function SignUpPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [password, setPassword] = useState("")
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  async function handleSubmit(formData: FormData) {
-    setIsLoading(true)
-    setError("")
+  const router = useRouter();
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user) {
+      router.push('/chat')
+    }
+  }, [router])
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    const formData = new FormData(e.currentTarget);
+    const payload = {
+      username: formData.get('username'),
+      email: formData.get('email'),
+      password: formData.get('password'),
+    };
 
     try {
-      const result = await signUp(formData)
-      if (result?.error) {
-        setError(result.error)
+      const res = await fetch('http://localhost:7000/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Signup failed');
+      } else {
+        setSuccess('Signup successful! Please log in.');
+        router.push('/login');
+        (e.target as HTMLFormElement).reset(); // Clear form
       }
     } catch (err) {
-      setError("An unexpected error occurred")
-    } finally {
-      setIsLoading(false)
+      setError('Server error. Please try again later.');
     }
-  }
-
-  const passwordRequirements = [
-    { text: "At least 6 characters", met: password.length >= 6 },
-    { text: "Contains a letter", met: /[a-zA-Z]/.test(password) },
-    { text: "Contains a number", met: /\d/.test(password) },
-  ]
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-blue-500 rounded-full">
-              <MessageCircle className="h-8 w-8 text-white" />
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-md">
+        <h2 className="text-2xl font-bold text-center mb-6">Sign Up</h2>
+
+        {error && <p className="text-red-500 mb-4">{error}</p>}
+        {success && <p className="text-green-600 mb-4">{success}</p>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-2">Username</label>
+            <input
+              type="text"
+              name="username"
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
           </div>
-          <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
-          <CardDescription>Join our chat community and start connecting</CardDescription>
-        </CardHeader>
-        <form action={handleSubmit}>
-          <CardContent className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
 
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                name="username"
-                type="text"
-                placeholder="Choose a username"
-                required
-                disabled={isLoading}
-              />
-            </div>
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-2">Email</label>
+            <input
+              type="email"
+              name="email"
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="Enter your email"
-                required
-                disabled={isLoading}
-              />
-            </div>
+          <div className="mb-6">
+            <label className="block text-gray-700 mb-2">Password</label>
+            <input
+              type="password"
+              name="password"
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Create a password"
-                  required
-                  disabled={isLoading}
-                  className="pr-10"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                  onClick={() => setShowPassword(!showPassword)}
-                  disabled={isLoading}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-gray-400" />
-                  ) : (
-                    <Eye className="h-4 w-4 text-gray-400" />
-                  )}
-                </Button>
-              </div>
-
-              {password && (
-                <div className="space-y-1 mt-2">
-                  {passwordRequirements.map((req, index) => (
-                    <div key={index} className="flex items-center text-xs">
-                      <Check className={`h-3 w-3 mr-2 ${req.met ? "text-green-500" : "text-gray-300"}`} />
-                      <span className={req.met ? "text-green-600" : "text-gray-500"}>{req.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Create Account"}
-            </Button>
-
-            <div className="text-center text-sm text-gray-600">
-              Already have an account?{" "}
-              <Link href="/login" className="text-blue-600 hover:underline font-medium">
-                Sign in
-              </Link>
-            </div>
-          </CardFooter>
+          <button
+            type="submit"
+            className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition duration-300"
+          >
+            Sign Up
+          </button>
         </form>
-      </Card>
+
+        <p className="mt-4 text-center text-sm text-gray-600">
+          Already have an account?{' '}
+          <Link href="/login" className="text-blue-600 hover:underline">
+            Log in
+          </Link>
+        </p>
+      </div>
     </div>
-  )
+  );
 }

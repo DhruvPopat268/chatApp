@@ -34,8 +34,9 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { getCurrentUser } from "@/lib/auth"
-import { redirect } from "next/navigation"
+import { getCurrentUser } from "@/lib/clientAuth"
+import { useRouter } from "next/navigation"
+
 
 interface Contact {
   id: string
@@ -168,14 +169,26 @@ const suggestedUsers: User[] = [
   },
 ]
 
-export default async function HomePage() {
-  const user = await getCurrentUser()
+export default function HomePage() {
+  const router = useRouter()
 
-  if (user) {
-    redirect("/chat")
-  } else {
-    redirect("/login")
-  }
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user) {
+      router.push("/chat")
+    } else {
+      router.push("/login")
+    }
+  }, [router])
+
+  return (
+    <div className="flex h-screen bg-gray-50 items-center justify-center">
+      <div className="flex items-center space-x-2">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+        <span>Loading...</span>
+      </div>
+    </div>
+  )
 }
 
 function ChatApp() {
