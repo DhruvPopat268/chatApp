@@ -35,6 +35,8 @@ class WebRTCManager {
   }
 
   private onCallStateChange: ((state: CallState) => void) | null = null
+  private pendingIceCandidates: RTCIceCandidate[] = []
+  private isRemoteDescriptionSet = false
 
   constructor(socket: any) {
     this.socket = socket
@@ -75,7 +77,14 @@ class WebRTCManager {
     this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidate, roomId: string }) => {
       if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
         try {
-          await this.peerConnection.addIceCandidate(data.candidate)
+          if (this.isRemoteDescriptionSet) {
+            await this.peerConnection.addIceCandidate(data.candidate)
+            console.log('ICE candidate added successfully')
+          } else {
+            // Store candidate for later when remote description is set
+            this.pendingIceCandidates.push(data.candidate)
+            console.log('ICE candidate stored for later, remote description not set yet')
+          }
         } catch (error) {
           console.error('Error adding ICE candidate:', error)
         }
@@ -86,9 +95,24 @@ class WebRTCManager {
     this.socket.on('offer', async (data: { offer: RTCSessionDescriptionInit, roomId: string }) => {
       if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
         try {
+          console.log('Received offer, setting remote description')
           await this.peerConnection.setRemoteDescription(data.offer)
+          this.isRemoteDescriptionSet = true
+          
+          // Add any pending ICE candidates
+          while (this.pendingIceCandidates.length > 0) {
+            const candidate = this.pendingIceCandidates.shift()!
+            try {
+              await this.peerConnection.addIceCandidate(candidate)
+              console.log('Pending ICE candidate added successfully')
+            } catch (error) {
+              console.error('Error adding pending ICE candidate:', error)
+            }
+          }
+          
           const answer = await this.peerConnection.createAnswer()
           await this.peerConnection.setLocalDescription(answer)
+          console.log('Sending answer')
           this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
         } catch (error) {
           console.error('Error handling offer:', error)
@@ -100,7 +124,20 @@ class WebRTCManager {
     this.socket.on('answer', async (data: { answer: RTCSessionDescriptionInit, roomId: string }) => {
       if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
         try {
+          console.log('Received answer, setting remote description')
           await this.peerConnection.setRemoteDescription(data.answer)
+          this.isRemoteDescriptionSet = true
+          
+          // Add any pending ICE candidates
+          while (this.pendingIceCandidates.length > 0) {
+            const candidate = this.pendingIceCandidates.shift()!
+            try {
+              await this.peerConnection.addIceCandidate(candidate)
+              console.log('Pending ICE candidate added successfully')
+            } catch (error) {
+              console.error('Error adding pending ICE candidate:', error)
+            }
+          }
         } catch (error) {
           console.error('Error handling answer:', error)
         }
@@ -156,7 +193,22 @@ class WebRTCManager {
       if (this.peerConnection?.connectionState === 'connected') {
         this.callState.isConnected = true
         this.notifyStateChange()
+        console.log('WebRTC connection established successfully!')
+      } else if (this.peerConnection?.connectionState === 'failed') {
+        console.error('WebRTC connection failed')
+      } else if (this.peerConnection?.connectionState === 'disconnected') {
+        console.log('WebRTC connection disconnected')
       }
+    }
+
+    // Handle ICE connection state changes
+    this.peerConnection.oniceconnectionstatechange = () => {
+      console.log('ICE connection state:', this.peerConnection?.iceConnectionState)
+    }
+
+    // Handle ICE gathering state changes
+    this.peerConnection.onicegatheringstatechange = () => {
+      console.log('ICE gathering state:', this.peerConnection?.iceGatheringState)
     }
   }
 
@@ -263,7 +315,7 @@ class WebRTCManager {
       this.peerConnection = null
     }
 
-    // Reset call state
+    // Reset call state and internal state
     this.callState = {
       isIncoming: false,
       isOutgoing: false,
@@ -274,6 +326,10 @@ class WebRTCManager {
       remoteStream: null,
       callData: null
     }
+
+    // Reset internal state
+    this.pendingIceCandidates = []
+    this.isRemoteDescriptionSet = false
 
     this.notifyStateChange()
   }

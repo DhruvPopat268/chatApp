@@ -44,9 +44,22 @@ export default function VoiceCallModal({
     if (callState.remoteStream && audioRef.current) {
       console.log('Setting remote stream to audio element:', callState.remoteStream)
       audioRef.current.srcObject = callState.remoteStream
-      audioRef.current.play().catch((error) => {
-        console.error('Error playing remote audio:', error)
-      })
+      
+      // Try to play audio with user interaction fallback
+      const playAudio = async () => {
+        try {
+          await audioRef.current!.play()
+          console.log('Remote audio playing successfully')
+        } catch (error) {
+          console.error('Error playing remote audio:', error)
+          // If autoplay is blocked, we'll need user interaction
+          if (error.name === 'NotAllowedError') {
+            console.log('Autoplay blocked, waiting for user interaction')
+          }
+        }
+      }
+      
+      playAudio()
     }
   }, [callState.remoteStream])
 
@@ -101,6 +114,18 @@ export default function VoiceCallModal({
             <p>Connected: {callState.isConnected ? 'Yes' : 'No'}</p>
             <p>Remote Stream: {callState.remoteStream ? 'Yes' : 'No'}</p>
             <p>Tracks: {callState.remoteStream?.getTracks().length || 0}</p>
+            {callState.remoteStream && (
+              <button 
+                onClick={() => {
+                  if (audioRef.current) {
+                    audioRef.current.play().catch(console.error)
+                  }
+                }}
+                className="text-blue-400 underline"
+              >
+                Test Audio Playback
+              </button>
+            )}
           </div>
         )}
 

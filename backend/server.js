@@ -108,6 +108,7 @@ io.on('connection', (socket) => {
     const receiverSocketId = connectedUsers.get(receiverId);
     
     if (receiverSocketId) {
+      console.log(`Call from ${socket.userId} to ${receiverId} in room ${roomId}`);
       io.to(receiverSocketId).emit('incoming_call', {
         callerId: socket.userId,
         receiverId,
@@ -115,14 +116,15 @@ io.on('connection', (socket) => {
         roomId,
         offer
       });
+    } else {
+      console.log(`Receiver ${receiverId} not found`);
     }
   });
 
   socket.on('accept_call', (data) => {
     const { roomId } = data;
-    // Notify the caller that the call was accepted
-    // We need to find the caller's socket and send to them specifically
-    // For now, broadcast to all clients in the room
+    console.log(`Call accepted by ${socket.userId} in room ${roomId}`);
+    // Notify all clients about the accepted call
     io.emit('call_accepted', {
       roomId,
       receiverId: socket.userId
