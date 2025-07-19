@@ -48,8 +48,21 @@ export default function VoiceCallModal({
       // Try to play audio with user interaction fallback
       const playAudio = async () => {
         try {
-          await audioRef.current!.play()
-          console.log('Remote audio playing successfully')
+          // Ensure the audio element is ready
+          if (audioRef.current!.readyState >= 2) {
+            await audioRef.current!.play()
+            console.log('Remote audio playing successfully')
+          } else {
+            // Wait for the audio to be ready
+            audioRef.current!.oncanplay = async () => {
+              try {
+                await audioRef.current!.play()
+                console.log('Remote audio playing successfully')
+              } catch (error) {
+                console.error('Error playing remote audio after canplay:', error)
+              }
+            }
+          }
         } catch (error) {
           console.error('Error playing remote audio:', error)
           // If autoplay is blocked, we'll need user interaction

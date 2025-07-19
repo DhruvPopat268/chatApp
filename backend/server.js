@@ -148,16 +148,22 @@ io.on('connection', (socket) => {
   // Handle WebRTC signaling
   socket.on('ice_candidate', (data) => {
     const { candidate, roomId } = data;
+    console.log(`ICE candidate from ${socket.userId} in room ${roomId}`);
+    // Broadcast to all clients in the room (for now, broadcast to all)
     io.emit('ice_candidate', { candidate, roomId });
   });
 
   socket.on('offer', (data) => {
     const { offer, roomId } = data;
+    console.log(`Offer from ${socket.userId} in room ${roomId}`);
+    // Broadcast to all clients in the room (for now, broadcast to all)
     io.emit('offer', { offer, roomId });
   });
 
   socket.on('answer', (data) => {
     const { answer, roomId } = data;
+    console.log(`Answer from ${socket.userId} in room ${roomId}`);
+    // Broadcast to all clients in the room (for now, broadcast to all)
     io.emit('answer', { answer, roomId });
   });
 

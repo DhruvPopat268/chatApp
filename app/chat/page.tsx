@@ -51,6 +51,7 @@ import WebRTCManager, { CallState, CallData } from "@/lib/webrtc"
 import VoiceCallModal from "@/components/VoiceCallModal"
 import VideoCallModal from "@/components/VideoCallModal"
 import IncomingCallNotification from "@/components/IncomingCallNotification"
+import WebRTCDebug from "@/components/WebRTCDebug"
 import config from "@/lib/config"
 
 interface Contact {
@@ -1252,6 +1253,13 @@ export default function ChatPage() {
               </Button>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* WebRTC Debug Panel - Only show in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-4 right-4 w-80 z-50">
+          <WebRTCDebug webrtcManager={webrtcManager} />
         </div>
       )}
     </div>

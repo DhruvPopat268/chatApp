@@ -93,9 +93,9 @@ class WebRTCManager {
 
     // Handle ICE candidates
     this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidate, roomId: string }) => {
-      if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
+      if (this.callState.callData?.roomId === data.roomId) {
         try {
-          if (this.isRemoteDescriptionSet && this.peerConnection.remoteDescription) {
+          if (this.peerConnection && this.isRemoteDescriptionSet && this.peerConnection.remoteDescription) {
             await this.peerConnection.addIceCandidate(data.candidate)
             console.log('ICE candidate added successfully')
           } else {
@@ -115,45 +115,47 @@ class WebRTCManager {
 
     // Handle offer
     this.socket.on('offer', async (data: { offer: RTCSessionDescriptionInit, roomId: string }) => {
-      if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
-        try {
-          console.log('Received offer, setting remote description')
-          await this.peerConnection.setRemoteDescription(data.offer)
-          this.isRemoteDescriptionSet = true
-          
-          // Add any pending ICE candidates
-          while (this.pendingIceCandidates.length > 0) {
-            const candidate = this.pendingIceCandidates.shift()!
-            try {
-              if (this.peerConnection && this.peerConnection.remoteDescription) {
-                await this.peerConnection.addIceCandidate(candidate)
-                console.log('Pending ICE candidate added successfully')
-              } else {
-                console.log('Skipping pending ICE candidate - no remote description')
+      if (this.callState.callData?.roomId === data.roomId) {
+        if (this.peerConnection) {
+          try {
+            console.log('Received offer, setting remote description')
+            await this.peerConnection.setRemoteDescription(data.offer)
+            this.isRemoteDescriptionSet = true
+            
+            // Add any pending ICE candidates
+            while (this.pendingIceCandidates.length > 0) {
+              const candidate = this.pendingIceCandidates.shift()!
+              try {
+                if (this.peerConnection && this.peerConnection.remoteDescription) {
+                  await this.peerConnection.addIceCandidate(candidate)
+                  console.log('Pending ICE candidate added successfully')
+                } else {
+                  console.log('Skipping pending ICE candidate - no remote description')
+                }
+              } catch (error) {
+                console.error('Error adding pending ICE candidate:', error)
+                // Continue processing other candidates
               }
-            } catch (error) {
-              console.error('Error adding pending ICE candidate:', error)
-              // Continue processing other candidates
             }
+            
+            const answer = await this.peerConnection.createAnswer()
+            await this.peerConnection.setLocalDescription(answer)
+            console.log('Sending answer')
+            this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
+          } catch (error) {
+            console.error('Error handling offer:', error)
           }
-          
-          const answer = await this.peerConnection.createAnswer()
-          await this.peerConnection.setLocalDescription(answer)
-          console.log('Sending answer')
-          this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
-        } catch (error) {
-          console.error('Error handling offer:', error)
+        } else {
+          // Store offer if peer connection not ready yet
+          console.log('Offer received but peer connection not ready, storing for later')
+          this.pendingOffer = data.offer
         }
-      } else if (this.callState.callData?.roomId === data.roomId) {
-        // Store offer if peer connection not ready yet
-        console.log('Offer received but peer connection not ready, storing for later')
-        this.pendingOffer = data.offer
       }
     })
 
     // Handle answer
     this.socket.on('answer', async (data: { answer: RTCSessionDescriptionInit, roomId: string }) => {
-      if (this.peerConnection && this.callState.callData?.roomId === data.roomId) {
+      if (this.callState.callData?.roomId === data.roomId && this.peerConnection) {
         try {
           console.log('Received answer, setting remote description')
           await this.peerConnection.setRemoteDescription(data.answer)
@@ -191,12 +193,21 @@ class WebRTCManager {
     const configuration: RTCConfiguration = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
+      ],
+      iceCandidatePoolSize: 10
     }
 
     this.peerConnection = new RTCPeerConnection(configuration)
     console.log('Peer connection created with config:', configuration)
+
+    // Add debugging for connection state
+    console.log('Initial connection state:', this.peerConnection.connectionState)
+    console.log('Initial ICE connection state:', this.peerConnection.iceConnectionState)
+    console.log('Initial ICE gathering state:', this.peerConnection.iceGatheringState)
 
     // Add local stream tracks
     if (this.localStream) {
@@ -244,8 +255,22 @@ class WebRTCManager {
         }
       } else if (this.peerConnection?.connectionState === 'failed') {
         console.error('WebRTC connection failed')
+        // Try to restart the connection after a delay
+        setTimeout(() => {
+          if (this.peerConnection?.connectionState === 'failed') {
+            console.log('Attempting to restart failed connection...')
+            this.endCall()
+          }
+        }, 5000)
       } else if (this.peerConnection?.connectionState === 'disconnected') {
         console.log('WebRTC connection disconnected')
+        // Don't immediately end the call on disconnect, give it time to reconnect
+        setTimeout(() => {
+          if (this.peerConnection?.connectionState === 'disconnected') {
+            console.log('Connection still disconnected after timeout, ending call')
+            this.endCall()
+          }
+        }, 10000)
       }
     }
 
@@ -465,6 +490,7 @@ class WebRTCManager {
 
   rejectCall() {
     if (this.callState.callData) {
+      console.log('Rejecting call')
       this.socket.emit('reject_call', {
         roomId: this.callState.callData.roomId
       })
@@ -519,32 +545,7 @@ class WebRTCManager {
     this.notifyStateChange()
   }
 
-  toggleMute() {
-    if (this.localStream) {
-      const audioTrack = this.localStream.getAudioTracks()[0]
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled
-        this.callState.isMuted = !audioTrack.enabled
-        this.notifyStateChange()
-      }
-    }
-  }
 
-  toggleVideo() {
-    if (this.localStream) {
-      const videoTrack = this.localStream.getVideoTracks()[0]
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled
-        this.callState.isVideoEnabled = videoTrack.enabled
-        this.notifyStateChange()
-      }
-    }
-  }
-
-  toggleSpeaker() {
-    this.callState.isSpeakerOn = !this.callState.isSpeakerOn
-    this.notifyStateChange()
-  }
 
   onStateChange(callback: (state: CallState) => void) {
     this.onCallStateChange = callback
@@ -556,8 +557,89 @@ class WebRTCManager {
     }
   }
 
+  // Get current call state
   getCallState(): CallState {
     return { ...this.callState }
+  }
+
+  // Check if a call is in progress
+  isCallInProgress(): boolean {
+    return this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected
+  }
+
+  toggleMute() {
+    if (this.localStream) {
+      const audioTrack = this.localStream.getAudioTracks()[0]
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled
+        this.callState.isMuted = !audioTrack.enabled
+        this.notifyStateChange()
+        console.log('Audio track muted:', this.callState.isMuted)
+      }
+    }
+  }
+
+  toggleSpeaker() {
+    this.callState.isSpeakerOn = !this.callState.isSpeakerOn
+    this.notifyStateChange()
+    console.log('Speaker toggled:', this.callState.isSpeakerOn)
+  }
+
+  toggleVideo() {
+    if (this.localStream) {
+      const videoTrack = this.localStream.getVideoTracks()[0]
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled
+        this.callState.isVideoEnabled = videoTrack.enabled
+        this.notifyStateChange()
+        console.log('Video track enabled:', this.callState.isVideoEnabled)
+      }
+    }
+  }
+
+  // Test WebRTC connection
+  async testConnection(): Promise<boolean> {
+    try {
+      console.log('Testing WebRTC connection...')
+      
+      // Test getUserMedia
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      console.log('getUserMedia test passed')
+      stream.getTracks().forEach(track => track.stop())
+      
+      // Test RTCPeerConnection
+      const testConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      })
+      console.log('RTCPeerConnection test passed')
+      testConnection.close()
+      
+      return true
+    } catch (error) {
+      console.error('WebRTC connection test failed:', error)
+      return false
+    }
+  }
+
+  // Get connection diagnostics
+  getConnectionDiagnostics() {
+    if (!this.peerConnection) {
+      return { error: 'No peer connection' }
+    }
+
+    return {
+      connectionState: this.peerConnection.connectionState,
+      iceConnectionState: this.peerConnection.iceConnectionState,
+      iceGatheringState: this.peerConnection.iceGatheringState,
+      signalingState: this.peerConnection.signalingState,
+      localDescription: this.peerConnection.localDescription ? 'Set' : 'Not set',
+      remoteDescription: this.peerConnection.remoteDescription ? 'Set' : 'Not set',
+      localStreamTracks: this.localStream?.getTracks().length || 0,
+      remoteStreamTracks: this.remoteStream?.getTracks().length || 0,
+      pendingIceCandidates: this.pendingIceCandidates.length,
+      isRemoteDescriptionSet: this.isRemoteDescriptionSet,
+      hasPendingOffer: !!this.pendingOffer
+    }
   }
 }
 
