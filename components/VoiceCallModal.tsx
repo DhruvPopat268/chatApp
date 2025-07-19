@@ -30,18 +30,40 @@ export default function VoiceCallModal({
 }: VoiceCallModalProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
 
+  // Debug call state changes
+  useEffect(() => {
+    console.log('VoiceCallModal - Call state changed:', {
+      isConnected: callState.isConnected,
+      hasRemoteStream: !!callState.remoteStream,
+      remoteStreamTracks: callState.remoteStream?.getTracks().length || 0
+    })
+  }, [callState.isConnected, callState.remoteStream])
+
   // Handle remote audio stream
   useEffect(() => {
     if (callState.remoteStream && audioRef.current) {
+      console.log('Setting remote stream to audio element:', callState.remoteStream)
       audioRef.current.srcObject = callState.remoteStream
-      audioRef.current.play().catch(console.error)
+      audioRef.current.play().catch((error) => {
+        console.error('Error playing remote audio:', error)
+      })
     }
   }, [callState.remoteStream])
 
   // Handle speaker mode
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.muted = callState.isSpeakerOn
+      // Enable speaker mode by setting audio output to speaker
+      if (callState.isSpeakerOn && 'setSinkId' in audioRef.current) {
+        // Try to set audio output to speaker (if supported)
+        audioRef.current.setSinkId('speaker').catch(() => {
+          // Fallback: just unmute the audio
+          audioRef.current!.muted = false
+        })
+      } else {
+        // Normal mode - ensure audio is not muted
+        audioRef.current.muted = false
+      }
     }
   }, [callState.isSpeakerOn])
 
@@ -72,6 +94,15 @@ export default function VoiceCallModal({
 
         {/* Hidden audio element for remote stream */}
         <audio ref={audioRef} autoPlay />
+        
+        {/* Debug info */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="text-xs text-gray-400 mt-2">
+            <p>Connected: {callState.isConnected ? 'Yes' : 'No'}</p>
+            <p>Remote Stream: {callState.remoteStream ? 'Yes' : 'No'}</p>
+            <p>Tracks: {callState.remoteStream?.getTracks().length || 0}</p>
+          </div>
+        )}
 
         <div className="flex justify-center space-x-4">
           {callState.isIncoming ? (

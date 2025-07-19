@@ -117,9 +117,11 @@ class WebRTCManager {
     }
 
     this.peerConnection = new RTCPeerConnection(configuration)
+    console.log('Peer connection created with config:', configuration)
 
     // Add local stream tracks
     if (this.localStream) {
+      console.log('Adding local stream tracks:', this.localStream.getTracks())
       this.localStream.getTracks().forEach(track => {
         this.peerConnection?.addTrack(track, this.localStream!)
       })
@@ -127,9 +129,15 @@ class WebRTCManager {
 
     // Handle remote stream
     this.peerConnection.ontrack = (event) => {
+      console.log('Remote track received:', event)
       this.remoteStream = event.streams[0]
       this.callState.remoteStream = this.remoteStream
       this.notifyStateChange()
+      
+      // Ensure the remote stream is properly connected
+      if (this.remoteStream) {
+        console.log('Remote stream tracks:', this.remoteStream.getTracks())
+      }
     }
 
     // Handle ICE candidates

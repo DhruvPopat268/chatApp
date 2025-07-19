@@ -121,7 +121,9 @@ io.on('connection', (socket) => {
   socket.on('accept_call', (data) => {
     const { roomId } = data;
     // Notify the caller that the call was accepted
-    socket.broadcast.emit('call_accepted', {
+    // We need to find the caller's socket and send to them specifically
+    // For now, broadcast to all clients in the room
+    io.emit('call_accepted', {
       roomId,
       receiverId: socket.userId
     });
@@ -130,29 +132,29 @@ io.on('connection', (socket) => {
   socket.on('reject_call', (data) => {
     const { roomId } = data;
     // Notify the caller that the call was rejected
-    socket.broadcast.emit('call_rejected', { roomId });
+    io.emit('call_rejected', { roomId });
   });
 
   socket.on('end_call', (data) => {
     const { roomId } = data;
     // Notify all participants that the call ended
-    socket.broadcast.emit('call_ended', { roomId });
+    io.emit('call_ended', { roomId });
   });
 
   // Handle WebRTC signaling
   socket.on('ice_candidate', (data) => {
     const { candidate, roomId } = data;
-    socket.broadcast.emit('ice_candidate', { candidate, roomId });
+    io.emit('ice_candidate', { candidate, roomId });
   });
 
   socket.on('offer', (data) => {
     const { offer, roomId } = data;
-    socket.broadcast.emit('offer', { offer, roomId });
+    io.emit('offer', { offer, roomId });
   });
 
   socket.on('answer', (data) => {
     const { answer, roomId } = data;
-    socket.broadcast.emit('answer', { answer, roomId });
+    io.emit('answer', { answer, roomId });
   });
 
   // Handle disconnection
