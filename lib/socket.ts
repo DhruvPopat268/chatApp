@@ -1,6 +1,7 @@
 "use client"
 
 import { io, Socket } from 'socket.io-client'
+import config from './config'
 import { getToken } from './clientAuth'
 
 class SocketManager {
@@ -18,7 +19,7 @@ class SocketManager {
       return null
     }
 
-    this.socket = io('http://localhost:7000', {
+    this.socket = io(config.getBackendUrl(), {
       transports: ['websocket', 'polling'],
       autoConnect: true
     })

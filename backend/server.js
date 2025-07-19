@@ -16,12 +16,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "https://chat-app-bice-kappa-21.vercel.app"],
     methods: ["GET", "POST"]
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: ["http://localhost:3000", "https://chat-app-bice-kappa-21.vercel.app"],
+  credentials: true
+}));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);

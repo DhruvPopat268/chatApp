@@ -50,6 +50,7 @@ import socketManager from "@/lib/socket"
 import WebRTCManager, { CallState, CallData } from "@/lib/webrtc"
 import VoiceCallModal from "@/components/VoiceCallModal"
 import IncomingCallNotification from "@/components/IncomingCallNotification"
+import config from "@/lib/config"
 
 interface Contact {
   id: string
@@ -226,7 +227,7 @@ export default function ChatPage() {
 
       // Load contacts
       try {
-        const response = await authenticatedFetch('http://localhost:7000/api/contacts')
+        const response = await authenticatedFetch(`${config.getBackendUrl()}/api/contacts`)
         if (response.ok) {
           const contacts = await response.json()
           setUserContacts(contacts)
@@ -266,7 +267,7 @@ export default function ChatPage() {
 
     setIsSearching(true)
     try {
-      const response = await fetch(`http://localhost:7000/api/auth?username=${encodeURIComponent(query)}`)
+      const response = await fetch(`${config.getBackendUrl()}/api/auth?username=${encodeURIComponent(query)}`)
       if (response.ok) {
         const users = await response.json()
         // Ensure users is an array
@@ -585,7 +586,7 @@ export default function ChatPage() {
 
   const addFriend = async (user: ApiUser) => {
     try {
-      const response = await authenticatedFetch('http://localhost:7000/api/contacts', {
+      const response = await authenticatedFetch(`${config.getBackendUrl()}/api/contacts`, {
         method: 'POST',
         body: JSON.stringify({ contactId: user._id }),
       })
@@ -621,7 +622,7 @@ export default function ChatPage() {
   const loadMessages = async (contactId: string) => {
     setIsLoadingMessages(true)
     try {
-      const response = await authenticatedFetch(`http://localhost:7000/api/messages/${contactId}`)
+      const response = await authenticatedFetch(`${config.getBackendUrl()}/api/messages/${contactId}`)
       if (response.ok) {
         const messagesData = await response.json()
         const formattedMessages: Message[] = messagesData.map((msg: any) => ({

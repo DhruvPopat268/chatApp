@@ -1,5 +1,7 @@
 "use client"
 
+import config from './config'
+
 interface User {
   id: string
   username: string
@@ -65,7 +67,7 @@ export const removeCurrentUser = (): void => {
 
 // Signup function
 export const signup = async (username: string, email: string, password: string): Promise<void> => {
-  const response = await fetch('http://localhost:7000/api/auth/signup', {
+  const response = await fetch(`${config.getBackendUrl()}/api/auth/signup`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -81,7 +83,7 @@ export const signup = async (username: string, email: string, password: string):
 
 // Login function
 export const login = async (username: string, password: string): Promise<LoginResponse> => {
-  const response = await fetch('http://localhost:7000/api/auth/login', {
+  const response = await fetch(`${config.getBackendUrl()}/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -103,7 +105,7 @@ export const login = async (username: string, password: string): Promise<LoginRe
 // Logout function
 export const logout = async (): Promise<void> => {
   try {
-    await fetch('http://localhost:7000/api/auth/logout', {
+    await fetch(`${config.getBackendUrl()}/api/auth/logout`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${getToken()}`,
