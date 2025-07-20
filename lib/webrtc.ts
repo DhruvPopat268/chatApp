@@ -20,11 +20,15 @@ export interface CallState {
 }
 
 class WebRTCManager {
+  private socket: any
   private peerConnection: RTCPeerConnection | null = null
   private localStream: MediaStream | null = null
   private remoteStream: MediaStream | null = null
-  private socket: any = null
-  private callState: CallState = {
+  private onCallStateChange: ((state: CallState) => void) | null = null
+  private ringtone: HTMLAudioElement | null = null
+  private connectionSound: HTMLAudioElement | null = null
+  private callStartTime: number = 0
+  private currentCallState: CallState = {
     isIncoming: false,
     isOutgoing: false,
     isConnected: false,
@@ -36,46 +40,41 @@ class WebRTCManager {
     callData: null
   }
 
-  private onCallStateChange: ((state: CallState) => void) | null = null
-  private pendingIceCandidates: RTCIceCandidate[] = []
-  private isRemoteDescriptionSet = false
-  private pendingOffer: RTCSessionDescriptionInit | null = null
-  private callTimeout: NodeJS.Timeout | null = null
-
   constructor(socket: any) {
     this.socket = socket
     this.setupSocketListeners()
+    this.initializePeerConnection()
   }
 
   private setupSocketListeners() {
     if (!this.socket) return
 
     // Handle incoming call
-    this.socket.on('incoming_call', (data: CallData & { offer?: RTCSessionDescriptionInit }) => {
-      console.log('Incoming call received:', data)
-      this.callState.isIncoming = true
-      this.callState.callData = data
-      
-      // If there's an offer, we need to handle it immediately
-      if (data.offer) {
-        console.log('Offer received with incoming call, will process after accepting')
-        // Store the offer to process after user accepts
-        this.pendingOffer = data.offer
-      }
-      
+    this.socket.on('incoming_call', (data: CallData) => {
+      console.log('Incoming call:', data)
+      this.currentCallState.isIncoming = true
+      this.currentCallState.callData = data
+      this.playRingtone()
       this.notifyStateChange()
     })
 
     // Handle call accepted
     this.socket.on('call_accepted', async (data: CallData) => {
-      console.log('Call accepted by receiver')
-      this.callState.isOutgoing = false
-      this.callState.isConnected = true
-      this.callState.callData = data
+      console.log('Call accepted:', data)
+      this.stopRingtone()
+      this.currentCallState.isOutgoing = false
+      this.currentCallState.callData = data
       
-      // Only create peer connection if it doesn't exist
-      if (!this.peerConnection) {
-        await this.createPeerConnection()
+      // Create and send offer
+      try {
+        if (this.peerConnection) {
+          const offer = await this.peerConnection.createOffer()
+          await this.peerConnection.setLocalDescription(offer)
+          this.socket.emit('offer', { offer, roomId: data.roomId })
+        }
+      } catch (error) {
+        console.error('Error creating offer:', error)
+        this.resetCallState()
       }
       
       this.notifyStateChange()
@@ -83,113 +82,59 @@ class WebRTCManager {
 
     // Handle call rejected
     this.socket.on('call_rejected', () => {
-      this.endCall()
+      console.log('Call rejected')
+      this.stopRingtone()
+      this.resetCallState()
     })
 
     // Handle call ended
     this.socket.on('call_ended', () => {
+      console.log('Call ended')
+      this.stopRingtone()
       this.endCall()
     })
 
-    // Handle ICE candidates
-    this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidate, roomId: string }) => {
-      if (this.callState.callData?.roomId === data.roomId) {
-        try {
-          if (this.peerConnection && this.isRemoteDescriptionSet && this.peerConnection.remoteDescription) {
-            await this.peerConnection.addIceCandidate(data.candidate)
-            console.log('ICE candidate added successfully')
-          } else {
-            // Store candidate for later when remote description is set
-            this.pendingIceCandidates.push(data.candidate)
-            console.log('ICE candidate stored for later, remote description not set yet')
-          }
-        } catch (error) {
-          console.error('Error adding ICE candidate:', error)
-          // Don't fail the call on ICE candidate errors, just log them
-          if (error.name === 'InvalidStateError') {
-            console.log('ICE candidate error - continuing call anyway')
-          }
-        }
-      }
-    })
-
-    // Handle offer
+    // Handle WebRTC signaling
     this.socket.on('offer', async (data: { offer: RTCSessionDescriptionInit, roomId: string }) => {
-      if (this.callState.callData?.roomId === data.roomId) {
+      console.log('Received offer')
+      try {
         if (this.peerConnection) {
-          try {
-            console.log('Received offer, setting remote description')
-            await this.peerConnection.setRemoteDescription(data.offer)
-            this.isRemoteDescriptionSet = true
-            
-            // Add any pending ICE candidates
-            while (this.pendingIceCandidates.length > 0) {
-              const candidate = this.pendingIceCandidates.shift()!
-              try {
-                if (this.peerConnection && this.peerConnection.remoteDescription) {
-                  await this.peerConnection.addIceCandidate(candidate)
-                  console.log('Pending ICE candidate added successfully')
-                } else {
-                  console.log('Skipping pending ICE candidate - no remote description')
-                }
-              } catch (error) {
-                console.error('Error adding pending ICE candidate:', error)
-                // Continue processing other candidates
-              }
-            }
-            
-            const answer = await this.peerConnection.createAnswer()
-            await this.peerConnection.setLocalDescription(answer)
-            console.log('Sending answer')
-            this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
-          } catch (error) {
-            console.error('Error handling offer:', error)
-          }
-        } else {
-          // Store offer if peer connection not ready yet
-          console.log('Offer received but peer connection not ready, storing for later')
-          this.pendingOffer = data.offer
+          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer))
+          const answer = await this.peerConnection.createAnswer()
+          await this.peerConnection.setLocalDescription(answer)
+          this.socket.emit('answer', { answer, roomId: data.roomId })
         }
+      } catch (error) {
+        console.error('Error handling offer:', error)
+        this.resetCallState()
       }
     })
 
-    // Handle answer
     this.socket.on('answer', async (data: { answer: RTCSessionDescriptionInit, roomId: string }) => {
-      if (this.callState.callData?.roomId === data.roomId && this.peerConnection) {
-        try {
-          console.log('Received answer, setting remote description')
-          await this.peerConnection.setRemoteDescription(data.answer)
-          this.isRemoteDescriptionSet = true
-          
-          // Add any pending ICE candidates
-          while (this.pendingIceCandidates.length > 0) {
-            const candidate = this.pendingIceCandidates.shift()!
-            try {
-              if (this.peerConnection && this.peerConnection.remoteDescription) {
-                await this.peerConnection.addIceCandidate(candidate)
-                console.log('Pending ICE candidate added successfully')
-              } else {
-                console.log('Skipping pending ICE candidate - no remote description')
-              }
-            } catch (error) {
-              console.error('Error adding pending ICE candidate:', error)
-              // Continue processing other candidates
-            }
-          }
-        } catch (error) {
-          console.error('Error handling answer:', error)
+      console.log('Received answer')
+      try {
+        if (this.peerConnection) {
+          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer))
         }
+      } catch (error) {
+        console.error('Error handling answer:', error)
+        this.resetCallState()
+      }
+    })
+
+    this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidateInit, roomId: string }) => {
+      console.log('Received ICE candidate')
+      try {
+        if (this.peerConnection) {
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
+        }
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error)
       }
     })
   }
 
-  private async createPeerConnection() {
-    // Don't create a new connection if one already exists
-    if (this.peerConnection) {
-      console.log('Peer connection already exists, reusing existing connection')
-      return
-    }
-
+  private initializePeerConnection() {
     const configuration: RTCConfiguration = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -197,329 +142,214 @@ class WebRTCManager {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' }
-      ],
-      iceCandidatePoolSize: 10
+      ]
     }
 
     this.peerConnection = new RTCPeerConnection(configuration)
-    console.log('Peer connection created with config:', configuration)
-
-    // Add debugging for connection state
-    console.log('Initial connection state:', this.peerConnection.connectionState)
-    console.log('Initial ICE connection state:', this.peerConnection.iceConnectionState)
-    console.log('Initial ICE gathering state:', this.peerConnection.iceGatheringState)
-
-    // Add local stream tracks
-    if (this.localStream) {
-      console.log('Adding local stream tracks:', this.localStream.getTracks())
-      this.localStream.getTracks().forEach(track => {
-        this.peerConnection?.addTrack(track, this.localStream!)
-      })
-    }
-
-    // Handle remote stream
-    this.peerConnection.ontrack = (event) => {
-      console.log('Remote track received:', event)
-      this.remoteStream = event.streams[0]
-      this.callState.remoteStream = this.remoteStream
-      this.notifyStateChange()
-      
-      // Ensure the remote stream is properly connected
-      if (this.remoteStream) {
-        console.log('Remote stream tracks:', this.remoteStream.getTracks())
-      }
-    }
 
     // Handle ICE candidates
     this.peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && this.currentCallState.callData) {
+        console.log('Sending ICE candidate')
         this.socket.emit('ice_candidate', {
           candidate: event.candidate,
-          roomId: this.callState.callData?.roomId
+          roomId: this.currentCallState.callData.roomId
         })
       }
     }
 
     // Handle connection state changes
     this.peerConnection.onconnectionstatechange = () => {
-      console.log('Connection state:', this.peerConnection?.connectionState)
-      if (this.peerConnection?.connectionState === 'connected') {
-        this.callState.isConnected = true
-        this.notifyStateChange()
-        console.log('WebRTC connection established successfully!')
+      const state = this.peerConnection?.connectionState
+      console.log('Connection state changed to:', state)
+      
+      if (state === 'connected') {
+        console.log('WebRTC connection established successfully')
+        this.currentCallState.isConnected = true
+        this.callStartTime = Date.now()
+        this.playConnectionSound()
         
-        // Clear timeout on successful connection
-        if (this.callTimeout) {
-          clearTimeout(this.callTimeout)
-          this.callTimeout = null
+        // Delay state notification to prevent audio element re-render issues
+        setTimeout(() => {
+          this.notifyStateChange()
+        }, 300)
+        
+      } else if (state === 'disconnected' || state === 'failed') {
+        console.log('WebRTC connection lost or failed')
+        // Only end call if it was actually connected for more than 1 second
+        if (this.currentCallState.isConnected && (Date.now() - this.callStartTime) > 1000) {
+          this.endCall()
+        } else {
+          console.log('Call ended too quickly, resetting state')
+          this.resetCallState()
         }
-      } else if (this.peerConnection?.connectionState === 'failed') {
-        console.error('WebRTC connection failed')
-        // Try to restart the connection after a delay
-        setTimeout(() => {
-          if (this.peerConnection?.connectionState === 'failed') {
-            console.log('Attempting to restart failed connection...')
-            this.endCall()
-          }
-        }, 5000)
-      } else if (this.peerConnection?.connectionState === 'disconnected') {
-        console.log('WebRTC connection disconnected')
-        // Don't immediately end the call on disconnect, give it time to reconnect
-        setTimeout(() => {
-          if (this.peerConnection?.connectionState === 'disconnected') {
-            console.log('Connection still disconnected after timeout, ending call')
-            this.endCall()
-          }
-        }, 10000)
+      } else if (state === 'connecting') {
+        console.log('WebRTC connection in progress...')
       }
     }
 
-    // Handle ICE connection state changes
-    this.peerConnection.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', this.peerConnection?.iceConnectionState)
-    }
-
-    // Handle ICE gathering state changes
-    this.peerConnection.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', this.peerConnection?.iceGatheringState)
+    // Handle remote stream
+    this.peerConnection.ontrack = (event) => {
+      console.log('Received remote stream')
+      this.remoteStream = event.streams[0]
+      this.currentCallState.remoteStream = this.remoteStream
+      
+      // Delay state notification to prevent audio element re-render issues
+      setTimeout(() => {
+        this.notifyStateChange()
+      }, 400)
+      
+      // Ensure the call stays connected even if audio fails
+      setTimeout(() => {
+        if (this.currentCallState.isConnected && !this.remoteStream) {
+          console.log('Remote stream not received, but keeping call active')
+        }
+      }, 2000)
     }
   }
 
   async startVoiceCall(receiverId: string): Promise<boolean> {
     try {
-      // Don't start a new call if one is already in progress
-      if (this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected) {
-        console.log('Call already in progress, cannot start new call')
-        return false
-      }
-
-      // Get user media for voice
+      // Get user media
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: false
       })
 
-      this.callState.localStream = this.localStream
-      this.callState.isOutgoing = true
-      this.callState.isVideoEnabled = false
-      this.callState.callData = {
-        callerId: '', // Will be set by server
-        receiverId,
-        callType: 'voice',
-        roomId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      }
-
-      this.notifyStateChange()
-
-      // Create peer connection
-      await this.createPeerConnection()
-
-      // Create and send offer
-      const offer = await this.peerConnection!.createOffer()
-      await this.peerConnection!.setLocalDescription(offer)
-      console.log('Local description set, sending offer to receiver')
-
-      // Send call request with offer
-      this.socket.emit('start_call', {
-        receiverId,
-        callType: 'voice',
-        roomId: this.callState.callData.roomId,
-        offer
+      // Add local stream to peer connection
+      this.localStream.getTracks().forEach(track => {
+        this.peerConnection?.addTrack(track, this.localStream!)
       })
 
-      // Set timeout for call establishment
-      this.callTimeout = setTimeout(() => {
-        console.log('Call establishment timeout, ending call')
-        this.endCall()
-      }, 30000) // 30 seconds timeout
+      // Update call state
+      this.currentCallState.isOutgoing = true
+      this.currentCallState.localStream = this.localStream
+      this.currentCallState.callData = {
+        callerId: this.getCurrentUserId(),
+        receiverId,
+        callType: 'voice',
+        roomId: this.generateRoomId()
+      }
+
+      // Send call request
+      this.socket.emit('start_call', this.currentCallState.callData)
+      this.notifyStateChange()
 
       return true
     } catch (error) {
       console.error('Error starting voice call:', error)
-      this.endCall()
       return false
     }
   }
 
   async startVideoCall(receiverId: string): Promise<boolean> {
     try {
-      // Don't start a new call if one is already in progress
-      if (this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected) {
-        console.log('Call already in progress, cannot start new call')
-        return false
-      }
-
-      // Get user media for video
+      // Get user media with video
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        }
+        video: true
       })
 
-      this.callState.localStream = this.localStream
-      this.callState.isOutgoing = true
-      this.callState.isVideoEnabled = true
-      this.callState.callData = {
-        callerId: '', // Will be set by server
+      // Add local stream to peer connection
+      this.localStream.getTracks().forEach(track => {
+        this.peerConnection?.addTrack(track, this.localStream!)
+      })
+
+      // Update call state
+      this.currentCallState.isOutgoing = true
+      this.currentCallState.localStream = this.localStream
+      this.currentCallState.callData = {
+        callerId: this.getCurrentUserId(),
         receiverId,
         callType: 'video',
-        roomId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        roomId: this.generateRoomId()
       }
 
+      // Send call request
+      this.socket.emit('start_call', this.currentCallState.callData)
       this.notifyStateChange()
-
-      // Create peer connection
-      await this.createPeerConnection()
-
-      // Create and send offer
-      const offer = await this.peerConnection!.createOffer()
-      await this.peerConnection!.setLocalDescription(offer)
-      console.log('Local description set, sending video offer to receiver')
-
-      // Send call request with offer
-      this.socket.emit('start_call', {
-        receiverId,
-        callType: 'video',
-        roomId: this.callState.callData.roomId,
-        offer
-      })
-
-      // Set timeout for call establishment
-      this.callTimeout = setTimeout(() => {
-        console.log('Call establishment timeout, ending call')
-        this.endCall()
-      }, 30000) // 30 seconds timeout
 
       return true
     } catch (error) {
       console.error('Error starting video call:', error)
-      this.endCall()
       return false
     }
   }
 
   async acceptCall(): Promise<boolean> {
     try {
-      if (!this.callState.callData) return false
+      if (!this.currentCallState.callData) return false
 
-      // Don't accept if already connected or processing
-      if (this.callState.isConnected || this.peerConnection) {
-        console.log('Call already connected or peer connection exists')
-        return false
-      }
+      console.log('Accepting call...')
+      this.stopRingtone()
 
-      console.log('Accepting call, getting user media...')
-
-      // Get user media based on call type
-      const mediaConstraints = this.callState.callData.callType === 'video' 
-        ? {
-            audio: true,
-            video: {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              facingMode: 'user'
-            }
-          }
-        : {
-            audio: true,
-            video: false
-          }
+      // Get user media
+      const mediaConstraints = this.currentCallState.callData.callType === 'video' 
+        ? { audio: true, video: true }
+        : { audio: true, video: false }
 
       this.localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
+      console.log('Local media stream obtained')
 
-      this.callState.localStream = this.localStream
-      this.callState.isIncoming = false
-      this.callState.isConnected = true
-      this.callState.isVideoEnabled = this.callState.callData.callType === 'video'
-
-      this.notifyStateChange()
-
-      // Create peer connection
-      await this.createPeerConnection()
-
-      // If we have a pending offer, process it now
-      if (this.pendingOffer) {
-        console.log('Processing pending offer...')
-        try {
-          await this.peerConnection!.setRemoteDescription(this.pendingOffer)
-          this.isRemoteDescriptionSet = true
-          
-          // Add any pending ICE candidates
-          while (this.pendingIceCandidates.length > 0) {
-            const candidate = this.pendingIceCandidates.shift()!
-            try {
-              if (this.peerConnection && this.peerConnection.remoteDescription) {
-                await this.peerConnection.addIceCandidate(candidate)
-                console.log('Pending ICE candidate added successfully')
-              } else {
-                console.log('Skipping pending ICE candidate - no remote description')
-              }
-            } catch (error) {
-              console.error('Error adding pending ICE candidate:', error)
-              // Continue processing other candidates
-            }
-          }
-          
-          const answer = await this.peerConnection!.createAnswer()
-          await this.peerConnection!.setLocalDescription(answer)
-          console.log('Sending answer')
-          this.socket.emit('answer', { answer, roomId: this.callState.callData.roomId })
-          
-          this.pendingOffer = null
-        } catch (error) {
-          console.error('Error processing pending offer:', error)
+      // Add local stream to peer connection
+      this.localStream.getTracks().forEach(track => {
+        if (this.peerConnection) {
+          this.peerConnection.addTrack(track, this.localStream!)
+          console.log('Added track to peer connection:', track.kind)
         }
-      }
-
-      // Accept the call
-      console.log('Sending accept_call signal')
-      this.socket.emit('accept_call', {
-        roomId: this.callState.callData.roomId
       })
+
+      // Accept the call FIRST before updating state
+      this.socket.emit('accept_call', this.currentCallState.callData)
+      console.log('Call acceptance signal sent')
+
+      // Update call state AFTER sending signal to prevent re-render issues
+      this.currentCallState.isIncoming = false
+      this.currentCallState.localStream = this.localStream
+
+      // Delay state notification to prevent audio element re-render
+      setTimeout(() => {
+        this.notifyStateChange()
+      }, 200)
 
       return true
     } catch (error) {
       console.error('Error accepting call:', error)
-      this.endCall()
+      this.resetCallState()
       return false
     }
   }
 
   rejectCall() {
-    if (this.callState.callData) {
-      console.log('Rejecting call')
-      this.socket.emit('reject_call', {
-        roomId: this.callState.callData.roomId
-      })
+    this.stopRingtone()
+    if (this.currentCallState.callData) {
+      this.socket.emit('reject_call', this.currentCallState.callData)
     }
-    this.endCall()
+    this.resetCallState()
   }
 
   endCall() {
-    // Notify server that call ended
-    if (this.callState.callData) {
-      this.socket.emit('end_call', {
-        roomId: this.callState.callData.roomId
-      })
+    this.stopRingtone()
+    if (this.currentCallState.callData) {
+      this.socket.emit('end_call', this.currentCallState.callData)
     }
+    this.resetCallState()
+  }
 
+  private resetCallState() {
+    console.log('Resetting call state...')
+    
     // Stop local stream
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop())
       this.localStream = null
     }
 
-    // Close peer connection
-    if (this.peerConnection) {
-      this.peerConnection.close()
-      this.peerConnection = null
-    }
+    // Stop ringtone
+    this.stopRingtone()
 
-    // Reset call state and internal state
-    this.callState = {
+    // Reset call state
+    this.currentCallState = {
       isIncoming: false,
       isOutgoing: false,
       isConnected: false,
@@ -531,21 +361,16 @@ class WebRTCManager {
       callData: null
     }
 
-    // Reset internal state
-    this.pendingIceCandidates = []
-    this.isRemoteDescriptionSet = false
-    this.pendingOffer = null
-    
-    // Clear timeout
-    if (this.callTimeout) {
-      clearTimeout(this.callTimeout)
-      this.callTimeout = null
+    // Reset peer connection
+    if (this.peerConnection) {
+      this.peerConnection.close()
+      this.initializePeerConnection()
     }
 
+    this.callStartTime = 0
     this.notifyStateChange()
+    console.log('Call state reset complete')
   }
-
-
 
   onStateChange(callback: (state: CallState) => void) {
     this.onCallStateChange = callback
@@ -553,18 +378,22 @@ class WebRTCManager {
 
   private notifyStateChange() {
     if (this.onCallStateChange) {
-      this.onCallStateChange({ ...this.callState })
+      this.onCallStateChange({ ...this.currentCallState })
     }
   }
 
-  // Get current call state
   getCallState(): CallState {
-    return { ...this.callState }
+    return { ...this.currentCallState }
   }
 
-  // Check if a call is in progress
   isCallInProgress(): boolean {
-    return this.callState.isOutgoing || this.callState.isIncoming || this.callState.isConnected
+    return this.currentCallState.isIncoming || 
+           this.currentCallState.isOutgoing || 
+           this.currentCallState.isConnected
+  }
+
+  isCallStable(): boolean {
+    return this.peerConnection?.connectionState === 'connected'
   }
 
   toggleMute() {
@@ -572,17 +401,15 @@ class WebRTCManager {
       const audioTrack = this.localStream.getAudioTracks()[0]
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled
-        this.callState.isMuted = !audioTrack.enabled
+        this.currentCallState.isMuted = !audioTrack.enabled
         this.notifyStateChange()
-        console.log('Audio track muted:', this.callState.isMuted)
       }
     }
   }
 
   toggleSpeaker() {
-    this.callState.isSpeakerOn = !this.callState.isSpeakerOn
+    this.currentCallState.isSpeakerOn = !this.currentCallState.isSpeakerOn
     this.notifyStateChange()
-    console.log('Speaker toggled:', this.callState.isSpeakerOn)
   }
 
   toggleVideo() {
@@ -590,56 +417,79 @@ class WebRTCManager {
       const videoTrack = this.localStream.getVideoTracks()[0]
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled
-        this.callState.isVideoEnabled = videoTrack.enabled
+        this.currentCallState.isVideoEnabled = videoTrack.enabled
         this.notifyStateChange()
-        console.log('Video track enabled:', this.callState.isVideoEnabled)
       }
     }
   }
 
-  // Test WebRTC connection
   async testConnection(): Promise<boolean> {
     try {
-      console.log('Testing WebRTC connection...')
-      
-      // Test getUserMedia
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      console.log('getUserMedia test passed')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       stream.getTracks().forEach(track => track.stop())
-      
-      // Test RTCPeerConnection
-      const testConnection = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      })
-      console.log('RTCPeerConnection test passed')
-      testConnection.close()
-      
       return true
     } catch (error) {
-      console.error('WebRTC connection test failed:', error)
+      console.error('Media access test failed:', error)
       return false
     }
   }
 
-  // Get connection diagnostics
   getConnectionDiagnostics() {
-    if (!this.peerConnection) {
-      return { error: 'No peer connection' }
-    }
-
     return {
-      connectionState: this.peerConnection.connectionState,
-      iceConnectionState: this.peerConnection.iceConnectionState,
-      iceGatheringState: this.peerConnection.iceGatheringState,
-      signalingState: this.peerConnection.signalingState,
-      localDescription: this.peerConnection.localDescription ? 'Set' : 'Not set',
-      remoteDescription: this.peerConnection.remoteDescription ? 'Set' : 'Not set',
-      localStreamTracks: this.localStream?.getTracks().length || 0,
-      remoteStreamTracks: this.remoteStream?.getTracks().length || 0,
-      pendingIceCandidates: this.pendingIceCandidates.length,
-      isRemoteDescriptionSet: this.isRemoteDescriptionSet,
-      hasPendingOffer: !!this.pendingOffer
+      peerConnectionState: this.peerConnection?.connectionState,
+      iceConnectionState: this.peerConnection?.iceConnectionState,
+      localStream: !!this.localStream,
+      remoteStream: !!this.remoteStream,
+      callState: this.currentCallState
     }
+  }
+
+  private getCurrentUserId(): string {
+    // Get user ID from localStorage or auth context
+    try {
+      const userStr = localStorage.getItem('user')
+      if (userStr) {
+        const user = JSON.parse(userStr)
+        return user.id || user._id || 'unknown-user'
+      }
+    } catch (error) {
+      console.error('Error getting current user ID:', error)
+    }
+    
+    // Fallback: try to get from sessionStorage or other sources
+    try {
+      const token = localStorage.getItem('token')
+      if (token) {
+        // Extract user ID from JWT token if possible
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        return payload.userId || payload.id || 'unknown-user'
+      }
+    } catch (error) {
+      console.error('Error extracting user ID from token:', error)
+    }
+    
+    return 'unknown-user'
+  }
+
+  private generateRoomId(): string {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  }
+
+  private playRingtone() {
+    // Skip ringtone for now to prevent call cutting
+    console.log('Ringtone disabled to prevent call issues')
+  }
+
+  private stopRingtone() {
+    if (this.ringtone) {
+      this.ringtone.pause()
+      this.ringtone.currentTime = 0
+    }
+  }
+
+  private playConnectionSound() {
+    // Skip connection sound for now to prevent call cutting
+    console.log('Connection sound disabled to prevent call issues')
   }
 }
 

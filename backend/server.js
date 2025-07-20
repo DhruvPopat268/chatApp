@@ -102,69 +102,77 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle voice/video calls
+  // WebRTC Call Signaling
   socket.on('start_call', (data) => {
-    const { receiverId, callType, roomId, offer } = data;
+    const { receiverId, callType, roomId } = data;
     const receiverSocketId = connectedUsers.get(receiverId);
     
     if (receiverSocketId) {
-      console.log(`Call from ${socket.userId} to ${receiverId} in room ${roomId}`);
       io.to(receiverSocketId).emit('incoming_call', {
         callerId: socket.userId,
         receiverId,
         callType,
-        roomId,
-        offer
+        roomId
       });
-    } else {
-      console.log(`Receiver ${receiverId} not found`);
-      // Notify caller that receiver is not available
-      socket.emit('call_failed', { reason: 'User not online' });
     }
   });
 
   socket.on('accept_call', (data) => {
-    const { roomId } = data;
-    console.log(`Call accepted by ${socket.userId} in room ${roomId}`);
-    // Notify all clients about the accepted call
-    io.emit('call_accepted', {
-      roomId,
-      receiverId: socket.userId
-    });
+    const { callerId, roomId } = data;
+    const callerSocketId = connectedUsers.get(callerId);
+    
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('call_accepted', {
+        callerId,
+        receiverId: socket.userId,
+        callType: data.callType,
+        roomId
+      });
+    }
   });
 
   socket.on('reject_call', (data) => {
-    const { roomId } = data;
-    // Notify the caller that the call was rejected
-    io.emit('call_rejected', { roomId });
+    const { callerId } = data;
+    const callerSocketId = connectedUsers.get(callerId);
+    
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('call_rejected');
+    }
   });
 
   socket.on('end_call', (data) => {
-    const { roomId } = data;
-    // Notify all participants that the call ended
-    io.emit('call_ended', { roomId });
+    const { callerId, receiverId } = data;
+    const callerSocketId = connectedUsers.get(callerId);
+    const receiverSocketId = connectedUsers.get(receiverId);
+    
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('call_ended');
+    }
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('call_ended');
+    }
   });
 
-  // Handle WebRTC signaling
-  socket.on('ice_candidate', (data) => {
-    const { candidate, roomId } = data;
-    console.log(`ICE candidate from ${socket.userId} in room ${roomId}`);
-    // Broadcast to all clients in the room (for now, broadcast to all)
-    io.emit('ice_candidate', { candidate, roomId });
-  });
-
+  // WebRTC Signaling (Offer/Answer/ICE)
   socket.on('offer', (data) => {
-    const { offer, roomId } = data;
-    console.log(`Offer from ${socket.userId} in room ${roomId}`);
-    // Broadcast to all clients in the room (for now, broadcast to all)
-    io.emit('offer', { offer, roomId });
+    const { roomId } = data;
+    console.log(`Offer received in room: ${roomId}`);
+    // Broadcast to all users in the room (for now, just the other party)
+    socket.broadcast.emit('offer', data);
   });
 
   socket.on('answer', (data) => {
-    const { answer, roomId } = data;
-    console.log(`Answer from ${socket.userId} in room ${roomId}`);
-    // Broadcast to all clients in the room (for now, broadcast to all)
-    io.emit('answer', { answer, roomId });
+    const { roomId } = data;
+    console.log(`Answer received in room: ${roomId}`);
+    // Broadcast to all users in the room (for now, just the other party)
+    socket.broadcast.emit('answer', data);
+  });
+
+  socket.on('ice_candidate', (data) => {
+    const { roomId } = data;
+    console.log(`ICE candidate received in room: ${roomId}`);
+    // Broadcast to all users in the room (for now, just the other party)
+    socket.broadcast.emit('ice_candidate', data);
   });
 
   // Handle disconnection

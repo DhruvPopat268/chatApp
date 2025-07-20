@@ -47,12 +47,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
 import socketManager from "@/lib/socket"
-import WebRTCManager, { CallState, CallData } from "@/lib/webrtc"
-import VoiceCallModal from "@/components/VoiceCallModal"
-import VideoCallModal from "@/components/VideoCallModal"
-import IncomingCallNotification from "@/components/IncomingCallNotification"
-import WebRTCDebug from "@/components/WebRTCDebug"
 import config from "@/lib/config"
+import WebRTCManager from "@/lib/webrtc"
 
 interface Contact {
   id: string
@@ -155,23 +151,23 @@ export default function ChatPage() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
-  const [isVoiceCall, setIsVoiceCall] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false)
   const [friendSearchQuery, setFriendSearchQuery] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [editedUser, setEditedUser] = useState<CurrentUser | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
   const [searchedUsers, setSearchedUsers] = useState<ApiUser[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [userContacts, setUserContacts] = useState<Contact[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
-  const [callState, setCallState] = useState<CallState>({
+  const [webrtcManager, setWebrtcManager] = useState<any>(null) // Removed WebRTCManager
+  const [callState, setCallState] = useState({ // Removed CallState
     isIncoming: false,
     isOutgoing: false,
     isConnected: false,
@@ -182,12 +178,13 @@ export default function ChatPage() {
     remoteStream: null,
     callData: null
   })
-  const [webrtcManager, setWebrtcManager] = useState<WebRTCManager | null>(null)
-  const [incomingCallData, setIncomingCallData] = useState<CallData | null>(null)
+  const [incomingCallData, setIncomingCallData] = useState<any>(null) // Removed CallData
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  const localAudioRef = useRef<HTMLAudioElement>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null)
 
   // Initialize user and contacts
   useEffect(() => {
@@ -214,17 +211,13 @@ export default function ChatPage() {
       
       // Initialize WebRTC manager
       if (socket) {
-        const manager = new WebRTCManager(socket)
-        manager.onStateChange((state) => {
+        const webrtc = new WebRTCManager(socket)
+        setWebrtcManager(webrtc)
+        
+        // Listen for call state changes
+        webrtc.onStateChange((state) => {
           setCallState(state)
-          // Handle incoming call notification
-          if (state.isIncoming && state.callData) {
-            setIncomingCallData(state.callData)
-          } else if (!state.isIncoming) {
-            setIncomingCallData(null)
-          }
         })
-        setWebrtcManager(manager)
       }
 
       // Load contacts
@@ -260,29 +253,56 @@ export default function ChatPage() {
     }
   }, [])
 
+  // Handle audio streams without causing re-renders
+  useEffect(() => {
+    if (localAudioRef.current && callState.localStream) {
+      localAudioRef.current.srcObject = callState.localStream
+      localAudioRef.current.muted = true
+      localAudioRef.current.volume = 0
+      
+      // Delay play to avoid AbortError
+      setTimeout(() => {
+        if (localAudioRef.current) {
+          localAudioRef.current.play().catch(e => console.log('Local audio play failed:', e))
+        }
+      }, 500)
+    }
+  }, [callState.localStream])
+
+  useEffect(() => {
+    if (remoteAudioRef.current && callState.remoteStream) {
+      remoteAudioRef.current.srcObject = callState.remoteStream
+      remoteAudioRef.current.muted = false
+      remoteAudioRef.current.volume = 1
+      
+      // Delay play to avoid AbortError
+      setTimeout(() => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.play().catch(e => console.log('Remote audio play failed:', e))
+        }
+      }, 500)
+    }
+  }, [callState.remoteStream])
+
   // Search users from API
   const searchUsers = async (query: string) => {
-    if (!query.trim() || !currentUser) {
+    if (!query.trim()) {
       setSearchedUsers([])
       return
     }
 
     setIsSearching(true)
     try {
-      const response = await fetch(`${config.getBackendUrl()}/api/auth?username=${encodeURIComponent(query)}`)
+      const response = await authenticatedFetch(`${config.getBackendUrl()}/api/auth?search=${encodeURIComponent(query)}`)
       if (response.ok) {
         const users = await response.json()
-        // Ensure users is an array
-        const usersArray = Array.isArray(users) ? users : []
-        // Filter out the current user and already added contacts
-        const filteredUsers = usersArray.filter((user: ApiUser) => {
-          const isNotCurrentUser = user.username !== currentUser.username
-          const isNotAlreadyContact = !userContacts.some(contact => contact.id === user._id)
-          return isNotCurrentUser && isNotAlreadyContact
-        })
+        // Filter out users who are already contacts
+        const filteredUsers = users.filter((user: ApiUser) => 
+          !userContacts.some(contact => contact.id === user._id)
+        )
         setSearchedUsers(filteredUsers)
       } else {
-        console.error('Failed to search users:', response.status)
+        console.error('Failed to search users')
         setSearchedUsers([])
       }
     } catch (error) {
@@ -524,82 +544,6 @@ export default function ChatPage() {
   const cancelEdit = () => {
     setEditedUser(currentUser)
     setIsEditingProfile(false)
-  }
-
-  const startVoiceCall = async () => {
-    if (!selectedContact || !webrtcManager) {
-      console.error('No contact selected or WebRTC manager not initialized')
-      return
-    }
-    
-    console.log('Starting voice call with:', selectedContact.name, selectedContact.id)
-    const success = await webrtcManager.startVoiceCall(selectedContact.id)
-    if (!success) {
-      console.error('Failed to start voice call')
-    } else {
-      console.log('Voice call started successfully')
-    }
-  }
-
-  const startVideoCall = async () => {
-    if (!selectedContact || !webrtcManager) {
-      console.error('No contact selected or WebRTC manager not initialized')
-      return
-    }
-    
-    console.log('Starting video call with:', selectedContact.name, selectedContact.id)
-    const success = await webrtcManager.startVideoCall(selectedContact.id)
-    if (!success) {
-      console.error('Failed to start video call')
-    } else {
-      console.log('Video call started successfully')
-    }
-  }
-
-  const endCall = () => {
-    if (webrtcManager) {
-      webrtcManager.endCall()
-    }
-    setIsVoiceCall(false)
-  }
-
-  const acceptCall = async () => {
-    if (!webrtcManager) {
-      console.error('WebRTC manager not initialized')
-      return
-    }
-    
-    console.log('Accepting incoming call')
-    const success = await webrtcManager.acceptCall()
-    if (!success) {
-      console.error('Failed to accept call')
-    } else {
-      console.log('Call accepted successfully')
-    }
-  }
-
-  const rejectCall = () => {
-    if (webrtcManager) {
-      webrtcManager.rejectCall()
-    }
-  }
-
-  const toggleMute = () => {
-    if (webrtcManager) {
-      webrtcManager.toggleMute()
-    }
-  }
-
-  const toggleSpeaker = () => {
-    if (webrtcManager) {
-      webrtcManager.toggleSpeaker()
-    }
-  }
-
-  const toggleVideo = () => {
-    if (webrtcManager) {
-      webrtcManager.toggleVideo()
-    }
   }
 
   const addFriend = async (user: ApiUser) => {
@@ -943,38 +887,62 @@ export default function ChatPage() {
               : "100vh",
         }}
       >
-        {/* Chat Header */}
+        {/* Top Bar with Sidebar Toggle */}
+        <div className="bg-white border-b border-gray-200 p-3 flex items-center space-x-3 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSidebar}
+            className="p-2 rounded-full hover:bg-gray-100"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold">Chat</h2>
+          </div>
+        </div>
+
+        {/* Contact header - Pinned */}
         <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center">
-            {selectedContact ? (
-              <>
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={selectedContact.avatar || "/placeholder.svg"} />
-                  <AvatarFallback>
-                    {selectedContact.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="ml-3">
-                  <h2 className="text-lg font-semibold">{selectedContact.name}</h2>
-                  <p className="text-sm text-gray-500">{selectedContact.online ? "Online" : "Last seen 2 hours ago"}</p>
-                </div>
-              </>
-            ) : (
-              <div className="ml-3">
-                <h2 className="text-lg font-semibold">Select a contact to start chatting</h2>
-              </div>
-            )}
+          <div className="flex items-center space-x-3">
+            <Avatar>
+              <AvatarImage src={selectedContact.avatar} />
+              <AvatarFallback>
+                {selectedContact.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h3 className="font-semibold">{selectedContact.name}</h3>
+              <p className="text-sm text-gray-500">
+                {selectedContact.online ? "Online" : "Offline"}
+              </p>
+            </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm" onClick={startVoiceCall}>
+            {/* Voice Call Button */}
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="p-2 rounded-full hover:bg-gray-100"
+              onClick={() => {
+                if (webrtcManager && selectedContact) {
+                  webrtcManager.startVoiceCall(selectedContact.id)
+                }
+              }}
+              disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+            >
               <Phone className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={startVideoCall}>
+            
+            {/* Video Call Button */}
+            <Button variant="ghost" size="sm" className="p-2 rounded-full hover:bg-gray-100">
               <Video className="h-4 w-4" />
             </Button>
+            
+            {/* More Options Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -982,16 +950,16 @@ export default function ChatPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem className="text-red-600" onClick={() => setShowDeleteConfirm(true)}>
+                <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Chat History
+                  Delete History
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
 
-        {/* Messages */}
+        {/* Messages - Scrollable area */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full p-4">
             <div className="space-y-4 pb-4">
@@ -1005,7 +973,7 @@ export default function ChatPage() {
                   <span className="text-sm text-gray-500">No messages yet. Start a conversation!</span>
                 </div>
               ) : (
-                                messages.map((message) => (
+                messages.map((message) => (
                   <div
                     key={message.id}
                     className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
@@ -1045,11 +1013,11 @@ export default function ChatPage() {
           </ScrollArea>
         </div>
 
-        {/* Message Input - Fixed at bottom */}
+        {/* Message Input - Pinned at bottom, above keyboard */}
         <div
           className={cn(
-            "bg-white border-t border-gray-200 p-4 flex-shrink-0",
-            isKeyboardVisible && "sticky bottom-0 z-10",
+            "bg-white border-t border-gray-200 p-4 flex-shrink-0 sticky bottom-0 z-10",
+            isKeyboardVisible && "pb-safe-area-inset-bottom"
           )}
           style={{
             paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
@@ -1195,47 +1163,6 @@ export default function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Voice Call Modal */}
-      {selectedContact && callState.callData?.callType === 'voice' && (
-        <VoiceCallModal
-          callState={callState}
-          contactName={selectedContact.name}
-          contactAvatar={selectedContact.avatar}
-          onAccept={acceptCall}
-          onReject={rejectCall}
-          onEnd={endCall}
-          onToggleMute={toggleMute}
-          onToggleSpeaker={toggleSpeaker}
-        />
-      )}
-
-      {/* Incoming Call Notification */}
-      {incomingCallData && (() => {
-        const callerContact = userContacts.find(contact => contact.id === incomingCallData.callerId)
-        return (
-          <IncomingCallNotification
-            callData={incomingCallData}
-            contactName={callerContact?.name || incomingCallData.callerId}
-            contactAvatar={callerContact?.avatar || "/placeholder.svg"}
-            onAccept={acceptCall}
-            onReject={rejectCall}
-          />
-        )
-      })()}
-
-      {/* Video Call Modal */}
-      {selectedContact && callState.callData?.callType === 'video' && (
-        <VideoCallModal
-          callState={callState}
-          contactName={selectedContact.name}
-          contactAvatar={selectedContact.avatar}
-          onEnd={endCall}
-          onToggleMute={toggleMute}
-          onToggleVideo={toggleVideo}
-          onToggleSpeaker={toggleSpeaker}
-        />
-      )}
-
       {/* Delete History Confirmation */}
       {showDeleteConfirm && selectedContact && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1256,12 +1183,126 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* WebRTC Debug Panel - Only show in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 right-4 w-80 z-50">
-          <WebRTCDebug webrtcManager={webrtcManager} />
+      {/* Incoming Call Modal */}
+      {callState.isIncoming && callState.callData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-96 p-6">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto animate-pulse">
+                <Phone className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Incoming Call</h3>
+                <p className="text-gray-600">
+                  {callState.callData.callType === 'voice' ? 'Voice Call' : 'Video Call'}
+                </p>
+              </div>
+              <div className="flex justify-center space-x-4">
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => webrtcManager?.rejectCall()}
+                  className="bg-red-500 text-white hover:bg-red-600"
+                >
+                  <PhoneOff className="h-5 w-5 mr-2" />
+                  Decline
+                </Button>
+                <Button 
+                  size="lg"
+                  onClick={async () => {
+                    if (webrtcManager) {
+                      console.log('User clicked accept call')
+                      const success = await webrtcManager.acceptCall()
+                      console.log('Accept call result:', success)
+                    }
+                  }}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  <Phone className="h-5 w-5 mr-2" />
+                  Accept
+                </Button>
+              </div>
+            </div>
+          </Card>
         </div>
       )}
+
+      {/* Outgoing Call Modal */}
+      {callState.isOutgoing && callState.callData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-96 p-6">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto animate-pulse">
+                <Phone className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Calling...</h3>
+                <p className="text-gray-600">
+                  {callState.callData.callType === 'voice' ? 'Voice Call' : 'Video Call'}
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={() => webrtcManager?.endCall()}
+                  className="bg-red-500 text-white hover:bg-red-600"
+                >
+                  <PhoneOff className="h-5 w-5 mr-2" />
+                  End Call
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Active Call Controls */}
+      {callState.isConnected && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg p-4 shadow-lg z-40">
+          <div className="flex items-center space-x-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => webrtcManager?.toggleMute()}
+              className={callState.isMuted ? "bg-red-500 text-white" : ""}
+            >
+              <MicOff className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => webrtcManager?.toggleSpeaker()}
+              className={callState.isSpeakerOn ? "bg-blue-500 text-white" : ""}
+            >
+              <Phone className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => webrtcManager?.endCall()}
+              className="bg-red-500 text-white hover:bg-red-600"
+            >
+              <PhoneOff className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Audio Elements for Call Streams - Using refs to prevent re-render issues */}
+      <audio
+        ref={localAudioRef}
+        autoPlay
+        playsInline
+        muted
+        style={{ display: 'none' }}
+      />
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        style={{ display: 'none' }}
+      />
     </div>
   )
 }
