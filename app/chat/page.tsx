@@ -185,8 +185,6 @@ export default function ChatPage() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
-  const localVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteVideoRef = useRef<HTMLVideoElement>(null)
 
   // Initialize user and contacts
   useEffect(() => {
@@ -286,34 +284,7 @@ export default function ChatPage() {
     }
   }, [callState.remoteStream])
 
-  // Handle video streams without causing re-renders
-  useEffect(() => {
-    if (localVideoRef.current && callState.localStream) {
-      localVideoRef.current.srcObject = callState.localStream
-      localVideoRef.current.muted = true
-      
-      // Delay play to avoid AbortError
-      setTimeout(() => {
-        if (localVideoRef.current) {
-          localVideoRef.current.play().catch(e => console.log('Local video play failed:', e))
-        }
-      }, 500)
-    }
-  }, [callState.localStream])
 
-  useEffect(() => {
-    if (remoteVideoRef.current && callState.remoteStream) {
-      remoteVideoRef.current.srcObject = callState.remoteStream
-      remoteVideoRef.current.muted = false
-      
-      // Delay play to avoid AbortError
-      setTimeout(() => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.play().catch(e => console.log('Remote video play failed:', e))
-        }
-      }, 500)
-    }
-  }, [callState.remoteStream])
 
   // Search users from API
   const searchUsers = async (query: string) => {
@@ -968,20 +939,7 @@ export default function ChatPage() {
               <Phone className="h-4 w-4" />
             </Button>
             
-            {/* Video Call Button */}
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="p-2 rounded-full hover:bg-gray-100"
-              onClick={() => {
-                if (webrtcManager && selectedContact) {
-                  webrtcManager.startVideoCall(selectedContact.id)
-                }
-              }}
-              disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
-            >
-              <Video className="h-4 w-4" />
-            </Button>
+
             
             {/* More Options Menu */}
             <DropdownMenu>
@@ -1230,17 +1188,11 @@ export default function ChatPage() {
           <Card className="w-96 p-6">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto animate-pulse">
-                {callState.callData.callType === 'video' ? (
-                  <Video className="h-8 w-8 text-white" />
-                ) : (
-                  <Phone className="h-8 w-8 text-white" />
-                )}
+                <Phone className="h-8 w-8 text-white" />
               </div>
               <div>
                 <h3 className="text-lg font-semibold">Incoming Call</h3>
-                <p className="text-gray-600">
-                  {callState.callData.callType === 'voice' ? 'Voice Call' : 'Video Call'}
-                </p>
+                <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center space-x-4">
                 <Button 
@@ -1278,17 +1230,11 @@ export default function ChatPage() {
           <Card className="w-96 p-6">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto animate-pulse">
-                {callState.callData.callType === 'video' ? (
-                  <Video className="h-8 w-8 text-white" />
-                ) : (
-                  <Phone className="h-8 w-8 text-white" />
-                )}
+                <Phone className="h-8 w-8 text-white" />
               </div>
               <div>
                 <h3 className="text-lg font-semibold">Calling...</h3>
-                <p className="text-gray-600">
-                  {callState.callData.callType === 'voice' ? 'Voice Call' : 'Video Call'}
-                </p>
+                <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center">
                 <Button 
@@ -1318,16 +1264,7 @@ export default function ChatPage() {
             >
               {callState.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
-            {callState.callData?.callType === 'video' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => webrtcManager?.toggleVideo()}
-                className={!callState.isVideoEnabled ? "bg-red-500 text-white hover:bg-red-600" : "hover:bg-gray-100"}
-              >
-                {!callState.isVideoEnabled ? <VideoOff className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-              </Button>
-            )}
+
             <Button
               variant="outline"
               size="sm"
@@ -1348,40 +1285,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Video Call Display */}
-      {callState.isConnected && callState.callData?.callType === 'video' && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="relative w-full h-full max-w-4xl max-h-[80vh] bg-gray-900 rounded-lg overflow-hidden">
-            {/* Remote Video (Main) */}
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="w-full h-full object-cover"
-              style={{ display: callState.remoteStream ? 'block' : 'none' }}
-            />
-            
-            {/* Local Video (Picture-in-Picture) */}
-            <div className="absolute top-4 right-4 w-32 h-24 bg-gray-800 rounded-lg overflow-hidden border-2 border-white">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-                style={{ display: callState.localStream ? 'block' : 'none' }}
-              />
-            </div>
-            
-            {/* Call Info */}
-            <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded-lg">
-              <p className="text-sm">
-                {callState.callData?.callType === 'video' ? 'Video Call' : 'Voice Call'}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Audio Elements for Call Streams - Using refs to prevent re-render issues */}
       <audio
@@ -1398,20 +1302,7 @@ export default function ChatPage() {
         style={{ display: 'none' }}
       />
       
-      {/* Video Elements for Call Streams - Using refs to prevent re-render issues */}
-      <video
-        ref={localVideoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{ display: 'none' }}
-      />
-      <video
-        ref={remoteVideoRef}
-        autoPlay
-        playsInline
-        style={{ display: 'none' }}
-      />
+
     </div>
   )
 }
