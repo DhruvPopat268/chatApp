@@ -67,10 +67,12 @@ class WebRTCManager {
       
       // Create and send offer
       try {
-        if (this.peerConnection) {
+        if (this.peerConnection && this.peerConnection.signalingState === 'stable') {
           const offer = await this.peerConnection.createOffer()
           await this.peerConnection.setLocalDescription(offer)
           this.socket.emit('offer', { offer, roomId: data.roomId })
+        } else {
+          console.log('Cannot create offer - peer connection not in stable state:', this.peerConnection?.signalingState)
         }
       } catch (error) {
         console.error('Error creating offer:', error)
@@ -98,38 +100,58 @@ class WebRTCManager {
     this.socket.on('offer', async (data: { offer: RTCSessionDescriptionInit, roomId: string }) => {
       console.log('Received offer')
       try {
-        if (this.peerConnection) {
+        if (this.peerConnection && this.peerConnection.signalingState === 'stable') {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer))
           const answer = await this.peerConnection.createAnswer()
           await this.peerConnection.setLocalDescription(answer)
           this.socket.emit('answer', { answer, roomId: data.roomId })
+        } else {
+          console.log('Ignoring offer - peer connection not in stable state:', this.peerConnection?.signalingState)
         }
       } catch (error) {
         console.error('Error handling offer:', error)
-        this.resetCallState()
+        // Don't reset call state for signaling errors, just log them
+        if (error.name === 'InvalidStateError') {
+          console.log('Signaling state error, continuing call...')
+        } else {
+          this.resetCallState()
+        }
       }
     })
 
     this.socket.on('answer', async (data: { answer: RTCSessionDescriptionInit, roomId: string }) => {
       console.log('Received answer')
       try {
-        if (this.peerConnection) {
+        if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer))
+        } else {
+          console.log('Ignoring answer - peer connection in stable state')
         }
       } catch (error) {
         console.error('Error handling answer:', error)
-        this.resetCallState()
+        // Don't reset call state for signaling errors, just log them
+        if (error.name === 'InvalidStateError') {
+          console.log('Signaling state error, continuing call...')
+        } else {
+          this.resetCallState()
+        }
       }
     })
 
     this.socket.on('ice_candidate', async (data: { candidate: RTCIceCandidateInit, roomId: string }) => {
       console.log('Received ICE candidate')
       try {
-        if (this.peerConnection) {
+        if (this.peerConnection && this.peerConnection.remoteDescription) {
           await this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
+        } else {
+          console.log('Ignoring ICE candidate - no remote description set')
         }
       } catch (error) {
         console.error('Error adding ICE candidate:', error)
+        // Don't reset call state for ICE errors, just log them
+        if (error.name === 'InvalidStateError') {
+          console.log('ICE candidate error, continuing call...')
+        }
       }
     })
   }
