@@ -49,6 +49,7 @@ import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
 import socketManager from "@/lib/socket"
 import config from "@/lib/config"
 import WebRTCManager from "@/lib/webrtc"
+import type { CallState } from "@/lib/webrtc"
 
 interface Contact {
   id: string
@@ -167,7 +168,7 @@ export default function ChatPage() {
   const [userContacts, setUserContacts] = useState<Contact[]>([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [webrtcManager, setWebrtcManager] = useState<any>(null) // Removed WebRTCManager
-  const [callState, setCallState] = useState({ // Removed CallState
+  const [callState, setCallState] = useState<CallState>({
     isIncoming: false,
     isOutgoing: false,
     isConnected: false,
@@ -908,18 +909,17 @@ export default function ChatPage() {
         <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center space-x-3">
             <Avatar>
-              <AvatarImage src={selectedContact.avatar} />
+              <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
               <AvatarFallback>
-                {selectedContact.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")}
+                {selectedContact?.name
+                  ? selectedContact.name.split(" ").map((n) => n[0]).join("")
+                  : "?"}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h3 className="font-semibold">{selectedContact.name}</h3>
+              <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
               <p className="text-sm text-gray-500">
-                {selectedContact.online ? "Online" : "Offline"}
+                {selectedContact?.online ? "Online" : "Offline"}
               </p>
             </div>
           </div>
@@ -937,6 +937,20 @@ export default function ChatPage() {
               disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
             >
               <Phone className="h-4 w-4" />
+            </Button>
+            {/* Video Call Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="p-2 rounded-full hover:bg-gray-100"
+              onClick={() => {
+                if (webrtcManager && selectedContact) {
+                  webrtcManager.startVideoCall(selectedContact.id)
+                }
+              }}
+              disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+            >
+              <Video className="h-4 w-4" />
             </Button>
             
 
@@ -1015,7 +1029,7 @@ export default function ChatPage() {
         {/* Message Input - Pinned at bottom, above keyboard */}
         <div
           className={cn(
-            "bg-white border-t border-gray-200 p-4 flex-shrink-0 sticky bottom-0 z-10",
+            "bg-white border-t border-gray-200 p-4 flex-shrink-0 fixed bottom-0 left-0 right-0 z-30",
             isKeyboardVisible && "pb-safe-area-inset-bottom"
           )}
           style={{
@@ -1285,6 +1299,76 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Video Call Modal */}
+      {callState.isConnected && callState.callData && callState.callData.callType === 'video' && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+          <Card className="w-full max-w-2xl p-4 flex flex-col items-center relative">
+            <div className="absolute top-2 right-2 flex space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => webrtcManager?.toggleMute()}
+                className={callState.isMuted ? "bg-red-500 text-white hover:bg-red-600" : "hover:bg-gray-100"}
+              >
+                {callState.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => webrtcManager?.toggleVideo()}
+                className={callState.isVideoEnabled ? "" : "bg-gray-300"}
+              >
+                {callState.isVideoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => webrtcManager?.endCall()}
+                className="bg-red-500 text-white hover:bg-red-600"
+              >
+                <PhoneOff className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="relative w-full flex flex-col items-center">
+              {/* Remote Video */}
+              <video
+                id="remoteVideo"
+                autoPlay
+                playsInline
+                style={{ width: '100%', maxHeight: '60vh', background: '#222', borderRadius: '12px' }}
+                ref={node => {
+                  if (node && callState.remoteStream) {
+                    node.srcObject = callState.remoteStream;
+                  }
+                }}
+              />
+              {/* Local Video (small overlay) */}
+              <video
+                id="localVideo"
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  position: 'absolute',
+                  bottom: '16px',
+                  right: '16px',
+                  width: '120px',
+                  height: '90px',
+                  background: '#444',
+                  borderRadius: '8px',
+                  border: '2px solid #fff',
+                  objectFit: 'cover',
+                }}
+                ref={node => {
+                  if (node && callState.localStream) {
+                    node.srcObject = callState.localStream;
+                  }
+                }}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
 
 
       {/* Audio Elements for Call Streams - Using refs to prevent re-render issues */}
