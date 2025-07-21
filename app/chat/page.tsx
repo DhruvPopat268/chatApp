@@ -1342,12 +1342,11 @@ export default function ChatPage() {
             >
               {callState.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
-
             <Button
               variant="outline"
               size="sm"
               onClick={() => webrtcManager?.toggleSpeaker()}
-              className={callState.isSpeakerOn ? "bg-blue-500 text-white" : ""}
+              className={callState.isSpeakerOn ? "bg-blue-500 text-white" : "hover:bg-gray-100"}
             >
               <Phone className="h-4 w-4" />
             </Button>
