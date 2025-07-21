@@ -232,6 +232,8 @@ class WebRTCManager {
 
   async startVoiceCall(receiverId: string): Promise<boolean> {
     try {
+      // Always create a new peer connection for each call
+      this.initializePeerConnection();
       // Get user media
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -266,6 +268,8 @@ class WebRTCManager {
 
   async startVideoCall(receiverId: string): Promise<boolean> {
     try {
+      // Always create a new peer connection for each call
+      this.initializePeerConnection();
       // Get user media with video
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -305,6 +309,8 @@ class WebRTCManager {
       console.log('Accepting call...')
       this.stopRingtone()
 
+      // Always create a new peer connection for each call
+      this.initializePeerConnection();
       // Get user media
       const mediaConstraints = this.currentCallState.callData.callType === 'video' 
         ? { audio: true, video: true }
@@ -312,11 +318,6 @@ class WebRTCManager {
 
       this.localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
       console.log('Local media stream obtained')
-
-      // Ensure peerConnection is not closed before adding tracks
-      if (!this.peerConnection || this.peerConnection.signalingState === 'closed') {
-        this.initializePeerConnection();
-      }
 
       // Add local stream to peer connection
       this.localStream.getTracks().forEach(track => {
@@ -388,10 +389,10 @@ class WebRTCManager {
       callData: null
     }
 
-    // Reset peer connection
+    // Only close and nullify peerConnection, do not re-initialize here
     if (this.peerConnection) {
       this.peerConnection.close()
-      this.initializePeerConnection()
+      this.peerConnection = null
     }
 
     this.callStartTime = 0
