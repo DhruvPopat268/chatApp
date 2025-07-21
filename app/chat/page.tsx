@@ -189,6 +189,8 @@ export default function ChatPage() {
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null);
+  // Add state for image preview modal
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // Initialize user and contacts
   useEffect(() => {
@@ -532,15 +534,15 @@ export default function ChatPage() {
     fileInputRef.current?.click()
   }
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file && editedUser) {
-      // In a real app, you would upload the file to a server
-      // For now, we'll just create a local URL
-      const imageUrl = URL.createObjectURL(file)
-      setEditedUser({ ...editedUser, avatar: imageUrl })
-    }
-  }
+  // const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  //   const file = event.target.files?.[0]
+  //   if (file && editedUser) {
+  //     // In a real app, you would upload the file to a server
+  //     // For now, we'll just create a local URL
+  //     const imageUrl = URL.createObjectURL(file)
+  //     setEditedUser({ ...editedUser, avatar: imageUrl })
+  //   }
+  // }
 
   const saveProfile = () => {
     setCurrentUser(editedUser)
@@ -656,11 +658,14 @@ export default function ChatPage() {
   const uploadImageToCloudinary = async (file: File): Promise<string | null> => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('upload_preset', process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'demo-preset');
-    formData.append('cloud_name', process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'demo-cloud');
+    formData.append('upload_preset', process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'prayoshaChatApp');
+    formData.append('cloud_name', process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'deqab5u6x');
+    // Use /image/upload for images, /raw/upload for everything else
+    const isImage = file.type.startsWith('image/');
+    const endpoint = isImage ? 'image' : 'raw';
     try {
       setIsUploadingImage(true);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'demo-cloud'}/image/upload`, {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'deqab5u6x'}/${endpoint}/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -669,7 +674,7 @@ export default function ChatPage() {
       return data.secure_url || null;
     } catch (err) {
       setIsUploadingImage(false);
-      alert('Image upload failed');
+      alert('File upload failed');
       return null;
     }
   };
@@ -696,6 +701,42 @@ export default function ChatPage() {
       setNewMessage("");
     }
   };
+
+  // Add file upload handler
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = await uploadImageToCloudinary(file); // Cloudinary supports files too
+    if (url && selectedContact && currentUser) {
+      socketManager.sendMessage(selectedContact.id, url, "file", file.name, (file.size / 1024 / 1024).toFixed(2) + ' MB');
+      const message: Message = {
+        id: Date.now().toString(),
+        senderId: "me",
+        content: url,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        type: "file",
+        fileName: file.name,
+        fileSize: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+      };
+      setMessages(prev => [...prev, message]);
+      setNewMessage("");
+    }
+  };
+
+  // Remove the old handleFileChange for avatar upload
+  // Add a new function for avatar upload
+  const handleAvatarFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && editedUser) {
+      // In a real app, you would upload the file to a server
+      // For now, we'll just create a local URL
+      const imageUrl = URL.createObjectURL(file)
+      setEditedUser({ ...editedUser, avatar: imageUrl })
+    }
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
@@ -1068,16 +1109,19 @@ export default function ChatPage() {
                           <img
                             src={message.content}
                             alt="Shared image"
-                            className="rounded-lg max-w-full h-auto"
+                            className="rounded-lg max-w-full h-auto cursor-pointer"
                             style={{ maxWidth: 240, maxHeight: 320 }}
+                            onClick={() => setPreviewImage(message.content)}
                           />
                         </div>
                       )}
-                      {message.type === "file" && (
+                      {message.type === "file" && message.content && (
                         <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
                           <File className="h-8 w-8 text-blue-500" />
                           <div>
-                            <p className="text-sm font-medium">{message.fileName}</p>
+                            <a href={message.content} target="_blank" rel="noopener noreferrer" className="text-sm font-medium underline">
+                              {message.fileName || 'Download file'}
+                            </a>
                             <p className="text-xs text-gray-500">{message.fileSize}</p>
                           </div>
                         </div>
@@ -1112,6 +1156,15 @@ export default function ChatPage() {
               accept="image/*"
               className="hidden"
               onChange={handleImageChange}
+            />
+            <Button variant="ghost" size="sm" onClick={handleFileButtonClick} disabled={isUploadingImage}>
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileChange}
             />
             <div className="flex-1 relative">
               <Input
@@ -1164,7 +1217,8 @@ export default function ChatPage() {
                   </Button>
                 )}
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              {/* Use handleAvatarFileChange for avatar input */}
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
             </div>
 
             {/* Profile Information */}
@@ -1426,6 +1480,22 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50" onClick={() => setPreviewImage(null)}>
+          <div className="relative">
+            <img src={previewImage} alt="Preview" className="max-w-full max-h-[80vh] rounded-lg" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="absolute top-2 right-2 bg-white"
+              onClick={e => { e.stopPropagation(); setPreviewImage(null); }}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Audio Elements for Call Streams - Using refs to prevent re-render issues */}
       <audio
