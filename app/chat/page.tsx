@@ -186,6 +186,8 @@ export default function ChatPage() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
+  // Add state for image uploading
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
 
   // Initialize user and contacts
   useEffect(() => {
@@ -636,6 +638,54 @@ export default function ChatPage() {
     )
   }
 
+  // Add Cloudinary upload function
+  const uploadImageToCloudinary = async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'demo-preset');
+    formData.append('cloud_name', process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'demo-cloud');
+    try {
+      setIsUploadingImage(true);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'demo-cloud'}/image/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      setIsUploadingImage(false);
+      return data.secure_url || null;
+    } catch (err) {
+      setIsUploadingImage(false);
+      alert('Image upload failed');
+      return null;
+    }
+  };
+
+  // Add image input ref
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageButtonClick = () => {
+    imageInputRef.current?.click();
+  };
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = await uploadImageToCloudinary(file);
+    if (url && selectedContact && currentUser) {
+      // Send image message
+      socketManager.sendMessage(selectedContact.id, url, "image");
+      const message: Message = {
+        id: Date.now().toString(),
+        senderId: "me",
+        content: url,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        type: "image",
+      };
+      setMessages(prev => [...prev, message]);
+      setNewMessage("");
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
       {/* Mobile Overlay */}
@@ -906,7 +956,11 @@ export default function ChatPage() {
         </div>
 
         {/* Contact header - Pinned */}
-        <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
+        <div className={cn(
+          "bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0 transition-all duration-300",
+          isKeyboardVisible ? "fixed top-0 left-0 right-0 z-40 shadow-md" : "relative z-10"
+        )}
+        style={isKeyboardVisible ? { width: '100vw' } : {}}>
           <div className="flex items-center space-x-3">
             <Avatar>
               <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
@@ -998,12 +1052,13 @@ export default function ChatPage() {
                       )}
                     >
                       {message.type === "text" && <p className="text-sm">{message.content}</p>}
-                      {message.type === "image" && (
+                      {message.type === "image" && message.content && (
                         <div className="space-y-2">
                           <img
-                            src="/placeholder.svg?height=200&width=300"
+                            src={message.content}
                             alt="Shared image"
                             className="rounded-lg max-w-full h-auto"
+                            style={{ maxWidth: 240, maxHeight: 320 }}
                           />
                         </div>
                       )}
@@ -1037,7 +1092,16 @@ export default function ChatPage() {
           }}
         >
           <div className="flex items-center space-x-2">
-            {/* Removed attachment, emoji, and voice message buttons */}
+            <Button variant="ghost" size="sm" onClick={handleImageButtonClick} disabled={isUploadingImage}>
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageChange}
+            />
             <div className="flex-1 relative">
               <Input
                 ref={messageInputRef}
@@ -1052,7 +1116,7 @@ export default function ChatPage() {
                 }}
               />
             </div>
-            <Button onClick={sendMessage} size="sm">
+            <Button onClick={sendMessage} size="sm" disabled={isUploadingImage}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
