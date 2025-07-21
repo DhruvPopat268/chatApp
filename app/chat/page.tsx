@@ -149,6 +149,7 @@ const initialMessages: Message[] = [
 ]
 
 export default function ChatPage() {
+  // All hooks must be declared before any early return
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
@@ -167,7 +168,7 @@ export default function ChatPage() {
   const [isSearching, setIsSearching] = useState(false)
   const [userContacts, setUserContacts] = useState<Contact[]>([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
-  const [webrtcManager, setWebrtcManager] = useState<any>(null) // Removed WebRTCManager
+  const [webrtcManager, setWebrtcManager] = useState<any>(null)
   const [callState, setCallState] = useState<CallState>({
     isIncoming: false,
     isOutgoing: false,
@@ -179,15 +180,15 @@ export default function ChatPage() {
     remoteStream: null,
     callData: null
   })
-  const [incomingCallData, setIncomingCallData] = useState<any>(null) // Removed CallData
+  const [incomingCallData, setIncomingCallData] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
-  // Add state for image uploading
   const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize user and contacts
   useEffect(() => {
@@ -639,7 +640,7 @@ export default function ChatPage() {
 
   const filteredContacts = userContacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
-  // Show loading state
+  // Early return for loading state must come after all hooks
   if (isLoading || !currentUser) {
     return (
       <div className="flex h-screen bg-gray-50 items-center justify-center">
@@ -672,9 +673,6 @@ export default function ChatPage() {
       return null;
     }
   };
-
-  // Add image input ref
-  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageButtonClick = () => {
     imageInputRef.current?.click();
