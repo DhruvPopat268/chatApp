@@ -614,9 +614,22 @@ export default function ChatPage() {
     }
   }
 
-  const deleteHistory = () => {
-    setMessages([])
-    setShowDeleteConfirm(false)
+  const deleteHistory = async () => {
+    if (!selectedContact || !currentUser) return;
+    try {
+      // Call backend API to delete all messages between current user and selected contact
+      const token = localStorage.getItem('token');
+      await fetch(`${config.getBackendUrl()}/api/messages/${selectedContact.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    } catch (err) {
+      console.error('Failed to delete messages from database', err);
+    }
+    setMessages([]);
+    setShowDeleteConfirm(false);
   }
 
   const handleLogout = async () => {

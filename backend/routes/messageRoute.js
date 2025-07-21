@@ -134,4 +134,22 @@ router.get('/unread/count', authenticateToken, async (req, res) => {
   }
 });
 
+// Delete all messages between current user and receiver
+router.delete('/:receiverId', authenticateToken, async (req, res) => {
+  try {
+    const { receiverId } = req.params;
+    // Delete messages where current user is sender or receiver and receiverId is the other party
+    await Message.deleteMany({
+      $or: [
+        { senderId: req.user.userId, receiverId: receiverId },
+        { senderId: receiverId, receiverId: req.user.userId }
+      ]
+    });
+    res.json({ message: 'Chat history deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete chat history' });
+  }
+});
+
 module.exports = router; 
