@@ -1037,12 +1037,7 @@ export default function ChatPage() {
           }}
         >
           <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm" onClick={() => handleFileUpload("image")}>
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => handleFileUpload("file")}>
-              <Paperclip className="h-4 w-4" />
-            </Button>
+            {/* Removed attachment, emoji, and voice message buttons */}
             <div className="flex-1 relative">
               <Input
                 ref={messageInputRef}
@@ -1056,14 +1051,6 @@ export default function ChatPage() {
                   fontSize: "16px", // Prevents zoom on iOS
                 }}
               />
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
-                <Button variant="ghost" size="sm">
-                  <Smile className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm">
-                  <Mic className="h-4 w-4" />
-                </Button>
-              </div>
             </div>
             <Button onClick={sendMessage} size="sm">
               <Send className="h-4 w-4" />
@@ -1303,30 +1290,25 @@ export default function ChatPage() {
       {callState.isConnected && callState.callData && callState.callData.callType === 'video' && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
           <Card className="w-full max-w-2xl p-4 flex flex-col items-center relative">
-            <div className="absolute top-2 right-2 flex space-x-2">
+            {/* Video Controls - Large, always visible */}
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-6 z-10">
               <Button
                 variant="outline"
-                size="sm"
+                size="lg"
                 onClick={() => webrtcManager?.toggleMute()}
-                className={callState.isMuted ? "bg-red-500 text-white hover:bg-red-600" : "hover:bg-gray-100"}
+                className={callState.isMuted ? "bg-red-500 text-white hover:bg-red-600 border-none" : "bg-white text-gray-800 hover:bg-gray-200 border-none shadow"}
+                style={{ width: 56, height: 56, borderRadius: 28, fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                {callState.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {callState.isMuted ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
               </Button>
               <Button
                 variant="outline"
-                size="sm"
-                onClick={() => webrtcManager?.toggleVideo()}
-                className={callState.isVideoEnabled ? "" : "bg-gray-300"}
-              >
-                {callState.isVideoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+                size="lg"
                 onClick={() => webrtcManager?.endCall()}
-                className="bg-red-500 text-white hover:bg-red-600"
+                className="bg-red-500 text-white hover:bg-red-600 border-none shadow"
+                style={{ width: 56, height: 56, borderRadius: 28, fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                <PhoneOff className="h-4 w-4" />
+                <PhoneOff className="h-8 w-8" />
               </Button>
             </div>
             <div className="relative w-full flex flex-col items-center">
