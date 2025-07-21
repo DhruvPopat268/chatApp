@@ -111,7 +111,7 @@ class WebRTCManager {
       } catch (error) {
         console.error('Error handling offer:', error)
         // Don't reset call state for signaling errors, just log them
-        if (error.name === 'InvalidStateError') {
+        if ((error as any).name === 'InvalidStateError') {
           console.log('Signaling state error, continuing call...')
         } else {
           this.resetCallState()
@@ -130,7 +130,7 @@ class WebRTCManager {
       } catch (error) {
         console.error('Error handling answer:', error)
         // Don't reset call state for signaling errors, just log them
-        if (error.name === 'InvalidStateError') {
+        if ((error as any).name === 'InvalidStateError') {
           console.log('Signaling state error, continuing call...')
         } else {
           this.resetCallState()
@@ -149,7 +149,7 @@ class WebRTCManager {
       } catch (error) {
         console.error('Error adding ICE candidate:', error)
         // Don't reset call state for ICE errors, just log them
-        if (error.name === 'InvalidStateError') {
+        if ((error as any).name === 'InvalidStateError') {
           console.log('ICE candidate error, continuing call...')
         }
       }
@@ -313,9 +313,14 @@ class WebRTCManager {
       this.localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
       console.log('Local media stream obtained')
 
+      // Ensure peerConnection is not closed before adding tracks
+      if (!this.peerConnection || this.peerConnection.signalingState === 'closed') {
+        this.initializePeerConnection();
+      }
+
       // Add local stream to peer connection
       this.localStream.getTracks().forEach(track => {
-        if (this.peerConnection) {
+        if (this.peerConnection && this.peerConnection.signalingState !== 'closed') {
           this.peerConnection.addTrack(track, this.localStream!)
           console.log('Added track to peer connection:', track.kind)
         }
