@@ -11,6 +11,7 @@ dotenv.config();
 const authRoutes = require("./routes/authRoute");
 const contactRoutes = require("./routes/contactRoute");
 const messageRoutes = require("./routes/messageRoute");
+const adminAuthRoutes = require("./routes/adminAuthRoute");
 
 const app = express();
 const server = http.createServer(app);
@@ -30,9 +31,30 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/admin-auth", adminAuthRoutes);
+
+// In-memory push subscriptions (userId -> subscription)
+const pushSubscriptions = new Map();
+
+const webpush = require('web-push');
+// Set your VAPID keys here
+webpush.setVapidDetails(
+  'mailto:your@email.com',
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
+
+app.post('/api/push/subscribe', (req, res) => {
+  const { subscription, userId } = req.body;
+  if (!subscription || !userId) return res.status(400).json({ error: 'Missing subscription or userId' });
+  pushSubscriptions.set(userId, subscription);
+  res.json({ success: true });
+});
 
 // Socket.IO connection handling
 const connectedUsers = new Map(); // userId -> socketId
+// Track last seen for users
+const userStatus = new Map(); // userId -> { online: boolean, lastSeen: number }
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -44,6 +66,9 @@ io.on('connection', (socket) => {
       const userId = decoded.userId;
       connectedUsers.set(userId, socket.id);
       socket.userId = userId;
+      userStatus.set(userId, { online: true });
+      // Broadcast to ALL users that this user is online
+      io.emit('user_status', { userId, online: true });
       console.log(`User ${userId} authenticated and connected`);
     } catch (error) {
       console.error('Authentication failed:', error);
@@ -75,6 +100,21 @@ io.on('connection', (socket) => {
       const receiverSocketId = connectedUsers.get(receiverId);
       if (receiverSocketId) {
         io.to(receiverSocketId).emit('new_message', populatedMessage);
+      } else {
+        // User is offline, send push notification if subscribed
+        const sub = pushSubscriptions.get(receiverId);
+        if (sub) {
+          const payload = JSON.stringify({
+            title: populatedMessage.senderId.username + ' sent a message',
+            body: content,
+            url: '/chat',
+          });
+          try {
+            await webpush.sendNotification(sub, payload);
+          } catch (err) {
+            console.error('Push notification error:', err);
+          }
+        }
       }
 
       // Send back to sender for confirmation
@@ -175,10 +215,24 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('ice_candidate', data);
   });
 
+  // Listen for status requests
+  socket.on('request_status', (data) => {
+    const { userId } = data;
+    if (connectedUsers.has(userId)) {
+      socket.emit('user_status', { userId, online: true });
+    } else {
+      const status = userStatus.get(userId);
+      socket.emit('user_status', { userId, online: false, lastSeen: status?.lastSeen });
+    }
+  });
+
   // Handle disconnection
   socket.on('disconnect', () => {
     if (socket.userId) {
       connectedUsers.delete(socket.userId);
+      userStatus.set(socket.userId, { online: false, lastSeen: Date.now() });
+      // Notify others this user is offline
+      io.emit('user_status', { userId: socket.userId, online: false, lastSeen: Date.now() });
       console.log(`User ${socket.userId} disconnected`);
     }
     console.log('User disconnected:', socket.id);

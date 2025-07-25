@@ -50,6 +50,7 @@ import socketManager from "@/lib/socket"
 import config from "@/lib/config"
 import WebRTCManager from "@/lib/webrtc"
 import type { CallState } from "@/lib/webrtc"
+import { useRouter } from 'next/navigation';
 
 interface Contact {
   id: string
@@ -149,6 +150,15 @@ const initialMessages: Message[] = [
 ]
 
 export default function ChatPage() {
+  const router = useRouter();
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const chatUserName = localStorage.getItem('chatUserName');
+      if (!chatUserName) {
+        router.push('/login');
+      }
+    }
+  }, [router]);
   // All hooks must be declared before any early return
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
@@ -191,8 +201,11 @@ export default function ChatPage() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   // Add state for image preview modal
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  // Add state for typing and online status
+  const [isTyping, setIsTyping] = useState(false);
+  const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
 
-  // Initialize user and contacts
+  // All useEffect hooks must be at the top level of the function component
   useEffect(() => {
     const initializeApp = async () => {
       const user = getCurrentUser()
@@ -259,7 +272,6 @@ export default function ChatPage() {
     }
   }, [])
 
-  // Handle audio streams without causing re-renders
   useEffect(() => {
     if (localAudioRef.current && callState.localStream) {
       localAudioRef.current.srcObject = callState.localStream
@@ -290,117 +302,66 @@ export default function ChatPage() {
     }
   }, [callState.remoteStream])
 
-
-
-  // Search users from API
-  const searchUsers = async (query: string) => {
-    if (!query.trim()) {
-      setSearchedUsers([])
-      return
-    }
-
-    setIsSearching(true)
-    try {
-      const response = await authenticatedFetch(`${config.getBackendUrl()}/api/auth?search=${encodeURIComponent(query)}`)
-      if (response.ok) {
-        const users = await response.json()
-        // Filter out users who are already contacts
-        const filteredUsers = users.filter((user: ApiUser) => 
-          !userContacts.some(contact => contact.id === user._id)
-        )
-        setSearchedUsers(filteredUsers)
-      } else {
-        console.error('Failed to search users')
-        setSearchedUsers([])
-      }
-    } catch (error) {
-      console.error('Error searching users:', error)
-      setSearchedUsers([])
-    } finally {
-      setIsSearching(false)
-    }
-  }
-
-  // Debounced search
+  // Typing indicator logic
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      searchUsers(friendSearchQuery)
-    }, 300)
-
-    return () => clearTimeout(timeoutId)
-  }, [friendSearchQuery])
-
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen)
-  }
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
-  // Handle virtual keyboard on mobile
-  useEffect(() => {
-    const handleResize = () => {
-      if (typeof window !== "undefined") {
-        const windowHeight = window.innerHeight
-        const documentHeight = document.documentElement.clientHeight
-
-        // Detect if virtual keyboard is open (significant height difference)
-        const keyboardOpen = windowHeight < documentHeight * 0.75
-        setIsKeyboardVisible(keyboardOpen)
-
-        // Scroll to bottom when keyboard opens/closes
-        if (keyboardOpen) {
-          setTimeout(() => {
-            scrollToBottom()
-            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-          }, 100)
-        }
-      }
+    if (!selectedContact || !currentUser) return;
+    let typingTimeout: NodeJS.Timeout;
+    const handleTyping = () => {
+      socketManager.sendTypingStart(selectedContact.id);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        socketManager.sendTypingStop(selectedContact.id);
+      }, 1500);
+    };
+    if (messageInputRef.current) {
+      messageInputRef.current.addEventListener('input', handleTyping);
     }
-
-    const handleVisualViewportChange = () => {
-      if (typeof window !== "undefined" && window.visualViewport) {
-        const viewport = window.visualViewport
-        const keyboardOpen = viewport.height < window.innerHeight * 0.75
-        setIsKeyboardVisible(keyboardOpen)
-
-        if (keyboardOpen) {
-          setTimeout(() => {
-            scrollToBottom()
-            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-          }, 100)
-        }
-      }
-    }
-
-    // Listen for window resize (fallback for older browsers)
-    window.addEventListener("resize", handleResize)
-
-    // Listen for visual viewport changes (modern browsers)
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleVisualViewportChange)
-    }
-
-    // Initial check
-    handleResize()
-
     return () => {
-      window.removeEventListener("resize", handleResize)
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", handleVisualViewportChange)
+      if (messageInputRef.current) {
+        messageInputRef.current.removeEventListener('input', handleTyping);
       }
+      clearTimeout(typingTimeout);
+    };
+  }, [selectedContact, currentUser]);
+
+  // Request status when selectedContact changes
+  useEffect(() => {
+    if (selectedContact && socketManager.getSocket()) {
+      socketManager.getSocket()?.emit('request_status', { userId: selectedContact.id });
     }
-  }, [])
+  }, [selectedContact]);
+
+  // Listen for typing and status events
+  useEffect(() => {
+    if (!currentUser) return;
+    socketManager.onUserTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        setIsTyping(true);
+      }
+    });
+    socketManager.onUserStoppedTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        setIsTyping(false);
+      }
+    });
+    // Listen for online/offline status
+    if (socketManager.getSocket()) {
+      socketManager.getSocket()?.on('user_status', (data) => {
+        if (selectedContact && data.userId === selectedContact.id) {
+          setContactStatus({ online: data.online, lastSeen: data.lastSeen });
+        }
+      });
+    }
+    return () => {
+      socketManager.removeAllListeners();
+      if (socketManager.getSocket()) {
+        socketManager.getSocket()?.off('user_status');
+      }
+    };
+  }, [selectedContact, currentUser]);
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  // Socket.IO event listeners
-  useEffect(() => {
-    if (!currentUser) return
-
+    if (!currentUser) return;
     // Listen for new messages
     socketManager.onNewMessage((message) => {
       console.log('New message received:', message)
@@ -443,28 +404,11 @@ export default function ChatPage() {
     socketManager.onMessageError((error) => {
       console.error('Message error:', error)
     })
-
-    // Listen for typing indicators
-    socketManager.onUserTyping((data) => {
-      if (selectedContact && data.userId === selectedContact.id) {
-        // You can add a typing indicator state here
-        console.log('User is typing...')
-      }
-    })
-
-    socketManager.onUserStoppedTyping((data) => {
-      if (selectedContact && data.userId === selectedContact.id) {
-        // You can remove typing indicator here
-        console.log('User stopped typing')
-      }
-    })
-
     return () => {
-      socketManager.removeAllListeners()
-    }
-  }, [currentUser, selectedContact])
+      socketManager.removeAllListeners();
+    };
+  }, [currentUser, selectedContact]);
 
-  // Load messages when selectedContact changes
   useEffect(() => {
     if (selectedContact && currentUser) {
       loadMessages(selectedContact.id)
@@ -737,6 +681,39 @@ export default function ChatPage() {
       setEditedUser({ ...editedUser, avatar: imageUrl })
     }
   }
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen((prev) => !prev);
+  };
+
+  // Add push notification setup
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    async function registerPush() {
+      try {
+        // Register service worker
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        // Request permission
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        // Subscribe to push
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: '<YOUR_PUBLIC_VAPID_KEY_HERE>' // Replace with your VAPID public key (Uint8Array)
+        });
+        // Send subscription to backend
+        await fetch('http://localhost:7000/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription, userId: currentUser?.id })
+        });
+      } catch (err) {
+        console.error('Push registration failed', err);
+      }
+    }
+    registerPush();
+  }, [currentUser?.id]);
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
@@ -1025,7 +1002,13 @@ export default function ChatPage() {
             <div>
               <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
               <p className="text-sm text-gray-500">
-                {selectedContact?.online ? "Online" : "Offline"}
+                {isTyping
+                  ? "Typing..."
+                  : contactStatus.online
+                    ? "Online"
+                    : contactStatus.lastSeen
+                      ? `Last seen ${Math.round((Date.now() - contactStatus.lastSeen) / 60000)} min ago`
+                      : ""}
               </p>
             </div>
           </div>

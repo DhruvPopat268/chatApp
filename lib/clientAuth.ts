@@ -65,37 +65,35 @@ export const removeCurrentUser = (): void => {
   }
 }
 
-// Signup function
-export const signup = async (username: string, email: string, password: string): Promise<void> => {
+// Signup function (admin only)
+export const signup = async (username: string, email: string): Promise<void> => {
   const response = await fetch(`${config.getBackendUrl()}/api/auth/signup`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-admin': 'true', // For demo, mark as admin
     },
-    body: JSON.stringify({ username, email, password }),
+    body: JSON.stringify({ username, email }),
   })
-
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.error || 'Signup failed')
   }
 }
 
-// Login function
-export const login = async (username: string, password: string): Promise<LoginResponse> => {
+// Login function (username only)
+export const login = async (username: string): Promise<LoginResponse> => {
   const response = await fetch(`${config.getBackendUrl()}/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username }),
   })
-
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.error || 'Login failed')
   }
-
   const data = await response.json()
   setToken(data.token)
   setCurrentUser(data.user)
