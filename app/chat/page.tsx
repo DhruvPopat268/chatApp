@@ -154,7 +154,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const chatUserName = localStorage.getItem('chatUserName');
-      if (!chatUserName) {
+      if (!chatUserName && window.location.pathname !== '/login') {
         router.push('/login');
       }
     }

@@ -17,14 +17,13 @@ export default function LoginPage() {
   const router = useRouter()
 
   useEffect(() => {
-    // If chatUserName is present, redirect to chat
     if (typeof window !== 'undefined') {
       const chatUserName = localStorage.getItem('chatUserName');
-      if (chatUserName) {
+      if (chatUserName && window.location.pathname !== '/chat') {
         router.push('/chat');
       }
     }
-  }, [router])
+  }, [router]);
 
   async function handleSubmit(formData: FormData) {
     setIsLoading(true)
