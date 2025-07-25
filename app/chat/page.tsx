@@ -153,8 +153,8 @@ export default function ChatPage() {
   const router = useRouter();
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const chatUserName = localStorage.getItem('chatUserName');
-      if (!chatUserName && window.location.pathname !== '/login') {
+      const user = getCurrentUser();
+      if (!user && window.location.pathname !== '/login') {
         router.push('/login');
       }
     }
@@ -210,7 +210,7 @@ export default function ChatPage() {
   useEffect(() => {
     // Only run if in browser and APIs are available
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (!currentUser?.id) return;
+    if (!currentUser || !currentUser.id) return;
     async function registerPush() {
       try {
         const reg = await navigator.serviceWorker.register('/sw.js');
@@ -232,11 +232,13 @@ export default function ChatPage() {
           userVisibleOnly: true,
           applicationServerKey
         });
-        await fetch('http://localhost:7000/api/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscription, userId: currentUser.id })
-        });
+        if (currentUser && currentUser.id) {
+          await fetch('http://localhost:7000/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription, userId: currentUser.id })
+          });
+        }
       } catch (err) {
         if (err instanceof DOMException) {
           console.error('Push registration failed:', err.name, err.message);

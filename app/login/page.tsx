@@ -18,8 +18,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const chatUserName = localStorage.getItem('chatUserName');
-      if (chatUserName && window.location.pathname !== '/chat') {
+      const user = getCurrentUser();
+      if (user && window.location.pathname !== '/chat') {
         router.push('/chat');
       }
     }
@@ -31,9 +31,6 @@ export default function LoginPage() {
     try {
       const username = formData.get("username") as string
       await login(username)
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('chatUserName', username)
-      }
       router.push('/chat')
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
