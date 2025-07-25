@@ -95,7 +95,7 @@ export async function signUpAdmin(data: {
   password: string
 }): Promise<{ success?: boolean; error?: string }> {
   try {
-    const response = await fetch("http://localhost:7000/api/admin-auth/signup", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/admin-auth/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: data.username, password: data.password })
@@ -112,7 +112,7 @@ export async function signUpAdmin(data: {
 
 export async function signInAdmin(username: string, password: string): Promise<{ success?: boolean; error?: string }> {
   try {
-    const response = await fetch("http://localhost:7000/api/admin-auth/login", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/admin-auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password })
@@ -149,7 +149,7 @@ export async function signOutAdmin(): Promise<void> {
 // User management functions
 export async function getAllUsers(): Promise<User[]> {
   try {
-    const response = await fetch("http://localhost:7000/api/auth", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth`, {
       method: "GET",
       headers: { "Content-Type": "application/json" }
     });
@@ -166,7 +166,7 @@ export async function createUser(data: {
   username: string
 }): Promise<{ success?: boolean; error?: string }> {
   try {
-    const response = await fetch("http://localhost:7000/api/auth/signup", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/signup`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -186,7 +186,7 @@ export async function createUser(data: {
 
 export async function deleteUser(userId: string): Promise<{ success?: boolean; error?: string }> {
   try {
-    const response = await fetch(`http://localhost:7000/api/auth/${userId}`, {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/${userId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
