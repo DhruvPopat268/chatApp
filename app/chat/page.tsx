@@ -46,6 +46,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
+import OneSignal from 'react-onesignal';
 import socketManager from "@/lib/socket"
 import config from "@/lib/config"
 import WebRTCManager from "@/lib/webrtc"
@@ -208,46 +209,61 @@ export default function ChatPage() {
 
   // Push notification setup - always call the hook
   useEffect(() => {
-    // Only run if in browser and APIs are available
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (!currentUser || !currentUser.id) return;
-    async function registerPush() {
-      try {
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
-        // Helper to convert VAPID key
-        function urlBase64ToUint8Array(base64String: string) {
-          const padding = '='.repeat((4 - base64String.length % 4) % 4);
-          const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-          const rawData = window.atob(base64);
-          const outputArray = new Uint8Array(rawData.length);
-          for (let i = 0; i < rawData.length; ++i) {
-            outputArray[i] = rawData.charCodeAt(i);
-          }
-          return outputArray;
+    if (!currentUser?.id) return;
+    OneSignal.init({
+      appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
+      notifyButton: {
+        enable: true,
+        prenotify: true,
+        showCredit: false,
+        text: {
+          'tip.state.unsubscribed': 'Subscribe to notifications',
+          'tip.state.subscribed': 'You are subscribed to notifications',
+          'tip.state.blocked': 'You have blocked notifications',
+          'message.prenotify': 'Click to subscribe to notifications',
+          'message.action.subscribed': "Thanks for subscribing!",
+          'message.action.resubscribed': "You're subscribed to notifications",
+          'message.action.unsubscribed': "You won't receive notifications again",
+          'message.action.subscribing': 'Subscribing...',
+          'dialog.main.title': 'Manage Site Notifications',
+          'dialog.main.button.subscribe': 'SUBSCRIBE',
+          'dialog.main.button.unsubscribe': 'UNSUBSCRIBE',
+          'dialog.blocked.title': 'Unblock Notifications',
+          'dialog.blocked.message': 'Follow instructions to allow notifications',
         }
-        const applicationServerKey = urlBase64ToUint8Array('BEBpdM1f4ieLbCS_QAvjBWfIB88PRmUot_pxEkLj9nbykz612Kf91BK0d6b9x5kK7J2mNuDmxOV8VtnsqNw7Bpo');
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey
-        });
-        if (currentUser && currentUser.id) {
-          await fetch('http://localhost:7000/api/push/subscribe', {
+      },
+      allowLocalhostAsSecureOrigin: true,
+    });
+    // react-onesignal does not have .on(). Use the callback in init or addEventListener pattern
+    const handleSubscriptionChange = async (isSubscribed: boolean) => {
+      if (isSubscribed) {
+        const playerId = await (OneSignal as any).getUserId();
+        if (playerId) {
+          await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subscription, userId: currentUser.id })
+            body: JSON.stringify({ playerId, userId: currentUser.id })
           });
         }
-      } catch (err) {
-        if (err instanceof DOMException) {
-          console.error('Push registration failed:', err.name, err.message);
-        } else {
-          console.error('Push registration failed', err);
-        }
       }
+    };
+    // Use OneSignal.Notifications.addEventListener if available, or polling as fallback
+    if ((OneSignal as any).Notifications?.addEventListener) {
+      (OneSignal as any).Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
+    } else {
+      // Fallback: poll for subscription status change
+      let lastSubscribed = false;
+      const poll = setInterval(async () => {
+        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        if (isSubscribed && !lastSubscribed) {
+          lastSubscribed = true;
+          handleSubscriptionChange(true);
+        } else if (!isSubscribed && lastSubscribed) {
+          lastSubscribed = false;
+        }
+      }, 2000);
+      return () => clearInterval(poll);
     }
-    registerPush();
   }, [currentUser?.id]);
 
   // All useEffect hooks must be at the top level of the function component
@@ -775,6 +791,37 @@ export default function ChatPage() {
       console.error('Notification permission error', err);
     }
   };
+
+  useEffect(() => {
+    if (!friendSearchQuery.trim()) {
+      setSearchedUsers([]);
+      return;
+    }
+    setIsSearching(true);
+    const url = `${config.getBackendUrl()}/api/auth/search?q=${encodeURIComponent(friendSearchQuery)}`;
+    console.log('Searching users with URL:', url);
+    fetch(url)
+      .then(res => {
+        if (!res.ok) {
+          console.error('User search API error:', res.status, res.statusText);
+          return [];
+        }
+        return res.json();
+      })
+      .then(users => {
+        setSearchedUsers(
+          users.filter((u: any) =>
+            u._id !== currentUser?.id &&
+            !userContacts.some(c => c.id === u._id)
+          )
+        );
+      })
+      .catch((err) => {
+        console.error('User search fetch error:', err);
+        setSearchedUsers([])
+      })
+      .finally(() => setIsSearching(false));
+  }, [friendSearchQuery, currentUser, userContacts]);
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">

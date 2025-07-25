@@ -37,18 +37,13 @@ app.use("/api/admin-auth", adminAuthRoutes);
 // In-memory push subscriptions (userId -> subscription)
 const pushSubscriptions = new Map();
 
-const webpush = require('web-push');
-// Set your VAPID keys here
-webpush.setVapidDetails(
-  'mailto:your@email.com',
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+const axios = require('axios');
 
-app.post('/api/push/subscribe', async (req, res) => {
-  const { subscription, userId } = req.body;
-  if (!subscription || !userId) return res.status(400).json({ error: 'Missing subscription or userId' });
-  await User.updateOne({ _id: userId }, { $set: { pushSubscription: subscription } });
+// Save OneSignal player ID for user
+app.post('/api/save-onesignal-id', async (req, res) => {
+  const { userId, playerId } = req.body;
+  if (!userId || !playerId) return res.status(400).json({ error: 'Missing userId or playerId' });
+  await User.updateOne({ _id: userId }, { $set: { oneSignalPlayerId: playerId } });
   res.json({ success: true });
 });
 
@@ -104,25 +99,30 @@ io.on('connection', (socket) => {
       if (receiverSocketId) {
         io.to(receiverSocketId).emit('new_message', populatedMessage);
       } else {
-        // User is offline, send push notification if subscribed
-        console.log('User', receiverId, 'is not connected. Attempting to send push notification.');
+        // User is offline, send push notification via OneSignal if playerId is set
+        console.log('User', receiverId, 'is not connected. Attempting to send push notification via OneSignal.');
         const user = await User.findById(receiverId);
-        const sub = user?.pushSubscription;
-        console.log('Push subscription for user', receiverId, ':', sub);
-        if (sub) {
-          const payload = JSON.stringify({
-            title: populatedMessage.senderId.username + ' sent a message',
-            body: content,
-            url: '/chat',
-          });
+        const playerId = user?.oneSignalPlayerId;
+        if (playerId) {
           try {
-            await webpush.sendNotification(sub, payload);
-            console.log('Push notification sent to user', receiverId);
+            await axios.post('https://onesignal.com/api/v1/notifications', {
+              app_id: process.env.ONESIGNAL_APP_ID,
+              include_player_ids: [playerId],
+              headings: { en: populatedMessage.senderId.username + ' sent a message' },
+              contents: { en: content },
+              url: '/chat',
+            }, {
+              headers: {
+                'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            console.log('OneSignal push notification sent to user', receiverId);
           } catch (err) {
-            console.error('Push notification error for user', receiverId, ':', err);
+            console.error('OneSignal push notification error for user', receiverId, ':', err);
           }
         } else {
-          console.log('No push subscription found for user', receiverId);
+          console.log('No OneSignal playerId found for user', receiverId);
         }
       }
 
