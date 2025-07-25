@@ -204,6 +204,7 @@ export default function ChatPage() {
   // Add state for typing and online status
   const [isTyping, setIsTyping] = useState(false);
   const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
+  const [notifEnabled, setNotifEnabled] = useState(false);
 
   // Push notification setup - always call the hook
   useEffect(() => {
@@ -237,7 +238,11 @@ export default function ChatPage() {
           body: JSON.stringify({ subscription, userId: currentUser.id })
         });
       } catch (err) {
-        console.error('Push registration failed', err);
+        if (err instanceof DOMException) {
+          console.error('Push registration failed:', err.name, err.message);
+        } else {
+          console.error('Push registration failed', err);
+        }
       }
     }
     registerPush();
@@ -722,6 +727,51 @@ export default function ChatPage() {
 
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => !prev);
+  };
+
+  const enableNotifications = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setNotifEnabled(false);
+        return;
+      }
+      setNotifEnabled(true);
+      // Register service worker and subscribe
+      if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (!currentUser?.id) return;
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      function urlBase64ToUint8Array(base64String: string) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      }
+      const applicationServerKey = urlBase64ToUint8Array('BEBpdM1f4ieLbCS_QAvjBWfIB88PRmUot_pxEkLj9nbykz612Kf91BK0d6b9x5kK7J2mNuDmxOV8VtnsqNw7Bpo');
+      try {
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+        await fetch('http://localhost:7000/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription, userId: currentUser.id })
+        });
+      } catch (err) {
+        if (err instanceof DOMException) {
+          console.error('Push registration failed:', err.name, err.message);
+        } else {
+          console.error('Push registration failed', err);
+        }
+      }
+    } catch (err) {
+      console.error('Notification permission error', err);
+    }
   };
 
   return (
@@ -1504,6 +1554,11 @@ export default function ChatPage() {
         style={{ display: 'none' }}
       />
       
+      {!notifEnabled && (
+        <button onClick={enableNotifications} style={{margin: 8, padding: 8, background: '#0070f3', color: 'white', border: 'none', borderRadius: 4}}>
+          Enable Notifications
+        </button>
+      )}
 
     </div>
   )
