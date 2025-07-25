@@ -12,6 +12,7 @@ const authRoutes = require("./routes/authRoute");
 const contactRoutes = require("./routes/contactRoute");
 const messageRoutes = require("./routes/messageRoute");
 const adminAuthRoutes = require("./routes/adminAuthRoute");
+const User = require('./models/authModel');
 
 const app = express();
 const server = http.createServer(app);
@@ -44,10 +45,10 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
-app.post('/api/push/subscribe', (req, res) => {
+app.post('/api/push/subscribe', async (req, res) => {
   const { subscription, userId } = req.body;
   if (!subscription || !userId) return res.status(400).json({ error: 'Missing subscription or userId' });
-  pushSubscriptions.set(userId, subscription);
+  await User.updateOne({ _id: userId }, { $set: { pushSubscription: subscription } });
   res.json({ success: true });
 });
 
@@ -102,7 +103,8 @@ io.on('connection', (socket) => {
         io.to(receiverSocketId).emit('new_message', populatedMessage);
       } else {
         // User is offline, send push notification if subscribed
-        const sub = pushSubscriptions.get(receiverId);
+        const user = await User.findById(receiverId);
+        const sub = user?.pushSubscription;
         if (sub) {
           const payload = JSON.stringify({
             title: populatedMessage.senderId.username + ' sent a message',

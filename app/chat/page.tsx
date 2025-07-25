@@ -1554,11 +1554,7 @@ export default function ChatPage() {
         style={{ display: 'none' }}
       />
       
-      {!notifEnabled && (
-        <button onClick={enableNotifications} style={{margin: 8, padding: 8, background: '#0070f3', color: 'white', border: 'none', borderRadius: 4}}>
-          Enable Notifications
-        </button>
-      )}
+      
 
     </div>
   )
