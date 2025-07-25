@@ -37,6 +37,13 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign({ adminId: admin._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
+    // Set httpOnly cookie for admin session
+    res.cookie('admin_session', admin._id, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
     res.json({ token, admin: { id: admin._id, username: admin.username } });
   } catch (err) {
     console.error(err);
