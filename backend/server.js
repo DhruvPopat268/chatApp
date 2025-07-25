@@ -103,8 +103,10 @@ io.on('connection', (socket) => {
         io.to(receiverSocketId).emit('new_message', populatedMessage);
       } else {
         // User is offline, send push notification if subscribed
+        console.log('User', receiverId, 'is not connected. Attempting to send push notification.');
         const user = await User.findById(receiverId);
         const sub = user?.pushSubscription;
+        console.log('Push subscription for user', receiverId, ':', sub);
         if (sub) {
           const payload = JSON.stringify({
             title: populatedMessage.senderId.username + ' sent a message',
@@ -113,9 +115,12 @@ io.on('connection', (socket) => {
           });
           try {
             await webpush.sendNotification(sub, payload);
+            console.log('Push notification sent to user', receiverId);
           } catch (err) {
-            console.error('Push notification error:', err);
+            console.error('Push notification error for user', receiverId, ':', err);
           }
+        } else {
+          console.log('No push subscription found for user', receiverId);
         }
       }
 
