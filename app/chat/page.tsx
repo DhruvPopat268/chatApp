@@ -226,7 +226,7 @@ export default function ChatPage() {
           }
           return outputArray;
         }
-        const applicationServerKey = urlBase64ToUint8Array('<YOUR_PUBLIC_VAPID_KEY_HERE>');
+        const applicationServerKey = urlBase64ToUint8Array('BEBpdM1f4ieLbCS_QAvjBWfIB88PRmUot_pxEkLj9nbykz612Kf91BK0d6b9x5kK7J2mNuDmxOV8VtnsqNw7Bpo');
         const subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey
