@@ -205,6 +205,44 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
 
+  // Push notification setup - always call the hook
+  useEffect(() => {
+    // Only run if in browser and APIs are available
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!currentUser?.id) return;
+    async function registerPush() {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        // Helper to convert VAPID key
+        function urlBase64ToUint8Array(base64String: string) {
+          const padding = '='.repeat((4 - base64String.length % 4) % 4);
+          const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+          const rawData = window.atob(base64);
+          const outputArray = new Uint8Array(rawData.length);
+          for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+          }
+          return outputArray;
+        }
+        const applicationServerKey = urlBase64ToUint8Array('<YOUR_PUBLIC_VAPID_KEY_HERE>');
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+        await fetch('http://localhost:7000/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription, userId: currentUser.id })
+        });
+      } catch (err) {
+        console.error('Push registration failed', err);
+      }
+    }
+    registerPush();
+  }, [currentUser?.id]);
+
   // All useEffect hooks must be at the top level of the function component
   useEffect(() => {
     const initializeApp = async () => {
@@ -685,35 +723,6 @@ export default function ChatPage() {
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => !prev);
   };
-
-  // Add push notification setup
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-
-    async function registerPush() {
-      try {
-        // Register service worker
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        // Request permission
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
-        // Subscribe to push
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: '<YOUR_PUBLIC_VAPID_KEY_HERE>' // Replace with your VAPID public key (Uint8Array)
-        });
-        // Send subscription to backend
-        await fetch('http://localhost:7000/api/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscription, userId: currentUser?.id })
-        });
-      } catch (err) {
-        console.error('Push registration failed', err);
-      }
-    }
-    registerPush();
-  }, [currentUser?.id]);
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
