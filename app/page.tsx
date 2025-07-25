@@ -6,8 +6,12 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Always redirect to login
-    router.push('/login');
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      if (path !== '/login' && path !== '/chat') {
+        router.push('/login');
+      }
+    }
   }, [router]);
 
   return (
