@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
       userStatus.set(userId, { online: true });
       // Broadcast to ALL users that this user is online
       io.emit('user_status', { userId, online: true });
-      console.log(`User ${userId} authenticated and connected`);
+      console.log(`User ${userId} authenticated and connected. Connected users:`, Array.from(connectedUsers.keys()));
     } catch (error) {
       console.error('Authentication failed:', error);
       socket.emit('auth_error', 'Authentication failed');
@@ -98,6 +98,8 @@ io.on('connection', (socket) => {
         .populate('receiverId', 'username');
 
       // Send to receiver if online
+      console.log('Connected users before message:', Array.from(connectedUsers.keys()));
+      console.log('Checking if user', receiverId, 'is connected:', connectedUsers.has(receiverId));
       const receiverSocketId = connectedUsers.get(receiverId);
       if (receiverSocketId) {
         io.to(receiverSocketId).emit('new_message', populatedMessage);
@@ -240,7 +242,7 @@ io.on('connection', (socket) => {
       userStatus.set(socket.userId, { online: false, lastSeen: Date.now() });
       // Notify others this user is offline
       io.emit('user_status', { userId: socket.userId, online: false, lastSeen: Date.now() });
-      console.log(`User ${socket.userId} disconnected`);
+      console.log(`User ${socket.userId} disconnected. Connected users now:`, Array.from(connectedUsers.keys()));
     }
     console.log('User disconnected:', socket.id);
   });
