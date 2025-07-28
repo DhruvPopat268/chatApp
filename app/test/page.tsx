@@ -36,6 +36,8 @@ export default function TestPage() {
           showCredit: false,
         },
         allowLocalhostAsSecureOrigin: true,
+        serviceWorkerPath: '/OneSignalSDKWorker.js',
+        serviceWorkerParam: { scope: '/' }
       });
       
       const subscribed = await (OneSignal as any).isPushNotificationsEnabled();

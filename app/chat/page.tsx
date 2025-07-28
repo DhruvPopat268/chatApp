@@ -191,6 +191,8 @@ export default function ChatPage() {
     
     const initializeOneSignal = async () => {
       try {
+        console.log('Initializing OneSignal...');
+        
         // Initialize OneSignal
         await OneSignal.init({
           appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
@@ -215,53 +217,44 @@ export default function ChatPage() {
             }
           },
           allowLocalhostAsSecureOrigin: true,
+          serviceWorkerPath: '/OneSignalSDKWorker.js',
+          serviceWorkerParam: { scope: '/' }
         });
 
-        // Check if notifications are already enabled
-        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
-        console.log('OneSignal subscription status:', isSubscribed);
+        console.log('OneSignal initialized successfully');
 
+        // Check if user is already subscribed
+        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        console.log('User subscription status:', isSubscribed);
+        
         if (isSubscribed) {
-          // User is already subscribed, get playerId and save it
           const playerId = await (OneSignal as any).getUserId();
           if (playerId) {
             console.log('Found existing playerId:', playerId);
             await savePlayerId(playerId);
+            setNotifEnabled(true);
           }
         } else {
-          // User is not subscribed, show notification prompt
-          console.log('User not subscribed, showing notification prompt...');
+          // Show notification prompt
+          console.log('Showing notification prompt...');
           await (OneSignal as any).showSlidedownPrompt();
         }
 
         // Set up subscription change listener
-        const handleSubscriptionChange = async (isSubscribed: boolean) => {
+        (OneSignal as any).on('subscriptionChange', async (isSubscribed: boolean) => {
           console.log('Subscription changed:', isSubscribed);
           if (isSubscribed) {
             const playerId = await (OneSignal as any).getUserId();
             if (playerId) {
               console.log('New playerId received:', playerId);
               await savePlayerId(playerId);
+              setNotifEnabled(true);
             }
+          } else {
+            setNotifEnabled(false);
           }
-        };
+        });
 
-        // Use the new OneSignal event listener if available
-        if ((OneSignal as any).Notifications?.addEventListener) {
-          (OneSignal as any).Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
-        } else {
-          // Fallback: poll for subscription status changes
-          let lastSubscribed = isSubscribed;
-          const poll = setInterval(async () => {
-            const currentSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
-            if (currentSubscribed !== lastSubscribed) {
-              lastSubscribed = currentSubscribed;
-              handleSubscriptionChange(currentSubscribed);
-            }
-          }, 2000);
-          
-          return () => clearInterval(poll);
-        }
       } catch (error) {
         console.error('OneSignal initialization error:', error);
       }
@@ -269,6 +262,7 @@ export default function ChatPage() {
 
     const savePlayerId = async (playerId: string) => {
       try {
+        console.log('Saving playerId to backend:', playerId);
         const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -276,9 +270,9 @@ export default function ChatPage() {
         });
         
         if (response.ok) {
-          console.log('PlayerId saved successfully');
+          console.log('PlayerId saved successfully to backend');
         } else {
-          console.error('Failed to save playerId');
+          console.error('Failed to save playerId to backend:', response.status);
         }
       } catch (error) {
         console.error('Error saving playerId:', error);

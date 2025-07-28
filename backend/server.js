@@ -41,10 +41,37 @@ const axios = require('axios');
 
 // Save OneSignal player ID for user
 app.post('/api/save-onesignal-id', async (req, res) => {
-  const { userId, playerId } = req.body;
-  if (!userId || !playerId) return res.status(400).json({ error: 'Missing userId or playerId' });
-  await User.updateOne({ _id: userId }, { $set: { oneSignalPlayerId: playerId } });
-  res.json({ success: true });
+  try {
+    const { userId, playerId } = req.body;
+    console.log('Received save-onesignal-id request:', { userId, playerId });
+    
+    if (!userId || !playerId) {
+      console.error('Missing userId or playerId:', { userId, playerId });
+      return res.status(400).json({ error: 'Missing userId or playerId' });
+    }
+    
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error('User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Update user with playerId
+    const result = await User.updateOne({ _id: userId }, { $set: { oneSignalPlayerId: playerId } });
+    console.log('Update result:', result);
+    
+    if (result.modifiedCount > 0) {
+      console.log('PlayerId saved successfully for user:', userId);
+      res.json({ success: true, message: 'PlayerId saved successfully' });
+    } else {
+      console.log('No changes made for user:', userId);
+      res.json({ success: true, message: 'PlayerId already exists' });
+    }
+  } catch (error) {
+    console.error('Error saving playerId:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
 });
 
 // Debug endpoint to check user notification status
