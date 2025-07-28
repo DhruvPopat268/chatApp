@@ -345,6 +345,13 @@ io.on('connection', (socket) => {
             console.log('Sending OneSignal notification with app_id:', process.env.ONESIGNAL_APP_ID);
             console.log('Sending OneSignal notification to player_id:', playerId);
 
+            console.log("About to send OneSignal payload:", JSON.stringify({
+              app_id: process.env.ONESIGNAL_APP_ID,
+              include_player_ids: [playerId],
+
+            }, null, 2));
+            
+
             const notificationResponse = await axios.post('https://onesignal.com/api/v1/notifications', {
               app_id: process.env.ONESIGNAL_APP_ID,
               include_player_ids: [playerId],
@@ -520,6 +527,16 @@ io.on('connection', (socket) => {
       console.log(`User ${socket.userId} disconnected. Connected users now:`, Array.from(connectedUsers.keys()));
     }
     console.log('User disconnected:', socket.id);
+  });
+});
+
+// Debug endpoint to check OneSignal configuration
+app.get('/api/debug/onesignal-config', (req, res) => {
+  res.json({
+    appId: process.env.ONESIGNAL_APP_ID,
+    hasRestApiKey: !!process.env.ONESIGNAL_REST_API_KEY,
+    restApiKeyLength: process.env.ONESIGNAL_REST_API_KEY ? process.env.ONESIGNAL_REST_API_KEY.length : 0,
+    appIdValid: process.env.ONESIGNAL_APP_ID && process.env.ONESIGNAL_APP_ID.length === 36
   });
 });
 
