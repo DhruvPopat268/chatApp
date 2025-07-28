@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,18 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
+  // Check if already logged in
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const adminUsername = localStorage.getItem('adminUsername');
+      const isLoggedIn = localStorage.getItem('adminLoggedIn');
+      
+      if (adminUsername && isLoggedIn === 'true') {
+        router.push('/admin');
+      }
+    }
+  }, [router]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
@@ -35,7 +47,8 @@ export default function AdminLogin() {
         return
       }
 
-      router.push("/admin")
+      // Force a hard navigation instead of router.push for better reliability
+      window.location.href = "/admin"
     } catch (error) {
       setError("Login failed. Please try again.")
     } finally {

@@ -44,6 +44,7 @@ export default function AdminDashboard() {
   const [admin, setAdmin] = useState<Admin | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [newUser, setNewUser] = useState({
@@ -54,7 +55,40 @@ export default function AdminDashboard() {
   const [isMobileView, setIsMobileView] = useState(false)
 
   useEffect(() => {
-    checkAdminAuth()
+    const checkAuth = async () => {
+      // Check localStorage first (synchronous)
+      if (typeof window !== 'undefined') {
+        const adminUsername = localStorage.getItem('adminUsername');
+        const isLoggedIn = localStorage.getItem('adminLoggedIn');
+        
+        if (!adminUsername || isLoggedIn !== 'true') {
+          router.push('/admin/login');
+          return;
+        }
+        setIsAuthenticated(true);
+      }
+
+      // Then check server-side auth (if you have it)
+      try {
+        const currentAdmin = await getCurrentAdmin()
+        if (!currentAdmin && typeof window !== 'undefined') {
+          // Only redirect if localStorage also doesn't have the username
+          const adminUsername = localStorage.getItem('adminUsername');
+          if (!adminUsername) {
+            router.push("/admin/login")
+            return
+          }
+        }
+        setAdmin(currentAdmin)
+      } catch (error) {
+        console.error("Auth check failed:", error)
+        // Don't redirect here, let localStorage check handle it
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkAuth()
     loadUsers()
 
     // Check if mobile view
@@ -65,33 +99,7 @@ export default function AdminDashboard() {
     checkMobile()
     window.addEventListener("resize", checkMobile)
     return () => window.removeEventListener("resize", checkMobile)
-  }, [])
-
-  // Add admin localStorage check
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const adminUsername = localStorage.getItem('adminUsername');
-      if (!adminUsername) {
-        router.push('/admin/login');
-      }
-      // else: stay on /admin and show dashboard
-    }
-  }, [router]);
-
-  const checkAdminAuth = async () => {
-    try {
-      const currentAdmin = await getCurrentAdmin()
-      if (!currentAdmin) {
-        router.push("/admin/login")
-        return
-      }
-      setAdmin(currentAdmin)
-    } catch (error) {
-      router.push("/admin/login")
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [router])
 
   const loadUsers = async () => {
     try {
@@ -104,7 +112,7 @@ export default function AdminDashboard() {
 
   const handleSignOut = async () => {
     await signOutAdmin()
-    router.push("/admin/login")
+    window.location.href = "/admin/login"
   }
 
   const handleCreateUser = async () => {
@@ -153,6 +161,18 @@ export default function AdminDashboard() {
     (user) =>
       user.username.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  // Don't render anything if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm md:text-base">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -240,9 +260,6 @@ export default function AdminDashboard() {
       </div>
 
       <div className="p-4 md:p-6">
-        {/* Mobile-Responsive Stats Cards */}
-
-
         {/* Mobile-Responsive User Management */}
         <Card>
           <CardHeader className="space-y-4">
