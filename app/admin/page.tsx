@@ -71,15 +71,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const adminUsername = localStorage.getItem('adminUsername');
-  
-      if (adminUsername) {
-        // ✅ Admin is logged in, go to dashboard
-        router.push('/admin');
-      } else {
-        // ❌ Not logged in, go to login page
-        console.log('No admin session found, redirecting to login');
+      if (!adminUsername) {
         router.push('/admin/login');
       }
+      // else: stay on /admin and show dashboard
     }
   }, [router]);
 
