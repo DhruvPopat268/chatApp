@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['react-onesignal'],
-  },
+  serverExternalPackages: ['react-onesignal'],
   async headers() {
     return [
       {
