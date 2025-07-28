@@ -195,10 +195,10 @@ export default function ChatPage() {
   const getAndSavePlayerId = async () => {
     console.log('Attempting to get playerId...');
     
-    // Method 1: Try OneSignal.User.getOneSignalId()
+    // Method 1: Try OneSignal.getUserId() (old API)
     try {
-      console.log('Trying OneSignal.User.getOneSignalId()...');
-      const playerId = await OneSignal.User.getOneSignalId();
+      console.log('Trying OneSignal.getUserId()...');
+      const playerId = await OneSignal.getUserId();
       console.log('Method 1 result:', playerId);
       if (playerId) {
         console.log('Success! Got playerId from method 1:', playerId);
@@ -210,40 +210,34 @@ export default function ChatPage() {
       console.log('Method 1 failed:', error);
     }
 
-    // Method 2: Try OneSignal.getUserId()
+    // Method 2: Try OneSignal.isPushNotificationsEnabled() to check status
     try {
-      console.log('Trying OneSignal.getUserId()...');
-      const playerId = await OneSignal.getUserId();
-      console.log('Method 2 result:', playerId);
-      if (playerId) {
-        console.log('Success! Got playerId from method 2:', playerId);
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
+      console.log('Trying OneSignal.isPushNotificationsEnabled()...');
+      const isEnabled = await OneSignal.isPushNotificationsEnabled();
+      console.log('Push notifications enabled:', isEnabled);
+      
+      if (isEnabled) {
+        // If enabled, try to get userId again
+        try {
+          const playerId = await OneSignal.getUserId();
+          if (playerId) {
+            console.log('Success! Got playerId after checking enabled status:', playerId);
+            await savePlayerId(playerId);
+            setNotifEnabled(true);
+            return;
+          }
+        } catch (error) {
+          console.log('Failed to get userId after checking enabled status');
+        }
       }
     } catch (error) {
       console.log('Method 2 failed:', error);
     }
 
-    // Method 3: Try OneSignal.User.getExternalUserId()
+    // Method 3: Try to get from OneSignal object properties
     try {
-      console.log('Trying OneSignal.User.getExternalUserId()...');
-      const playerId = await OneSignal.User.getExternalUserId();
-      console.log('Method 3 result:', playerId);
-      if (playerId) {
-        console.log('Success! Got playerId from method 3:', playerId);
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
-      }
-    } catch (error) {
-      console.log('Method 3 failed:', error);
-    }
-
-    // Method 4: Try to get from OneSignal object directly
-    try {
-      console.log('Trying to access OneSignal object directly...');
-      console.log('OneSignal object:', OneSignal);
+      console.log('Trying to access OneSignal object properties...');
+      console.log('OneSignal object keys:', Object.keys(OneSignal));
       
       // Check if OneSignal has a userId property
       if (OneSignal.userId) {
@@ -260,11 +254,22 @@ export default function ChatPage() {
         setNotifEnabled(true);
         return;
       }
+
+      // Check if OneSignal has a getUserId property
+      if (typeof OneSignal.getUserId === 'function') {
+        const playerId = await OneSignal.getUserId();
+        if (playerId) {
+          console.log('Success! Got playerId from OneSignal.getUserId():', playerId);
+          await savePlayerId(playerId);
+          setNotifEnabled(true);
+          return;
+        }
+      }
     } catch (error) {
-      console.log('Method 4 failed:', error);
+      console.log('Method 3 failed:', error);
     }
 
-    // Method 5: Try to get from localStorage
+    // Method 4: Try to get from localStorage
     try {
       console.log('Trying to get from localStorage...');
       const storedPlayerId = localStorage.getItem('OneSignal_playerId');
@@ -275,7 +280,56 @@ export default function ChatPage() {
         return;
       }
     } catch (error) {
+      console.log('Method 4 failed:', error);
+    }
+
+    // Method 5: Try to get from IndexedDB
+    try {
+      console.log('Trying to get from IndexedDB...');
+      if ('indexedDB' in window) {
+        const request = indexedDB.open('OneSignal', 1);
+        request.onsuccess = async (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          const transaction = db.transaction(['keyvaluepairs'], 'readonly');
+          const store = transaction.objectStore('keyvaluepairs');
+          const getRequest = store.get('ONESIGNAL_USER_ID');
+          
+          getRequest.onsuccess = async () => {
+            if (getRequest.result) {
+              const playerId = getRequest.result.value;
+              console.log('Success! Got playerId from IndexedDB:', playerId);
+              await savePlayerId(playerId);
+              setNotifEnabled(true);
+            }
+          };
+        };
+      }
+    } catch (error) {
       console.log('Method 5 failed:', error);
+    }
+
+    // Method 6: Try to get from OneSignal REST API
+    try {
+      console.log('Trying to get from OneSignal REST API...');
+      // This is a fallback method - we'll try to get the playerId from the OneSignal dashboard
+      // by checking if there's any stored data in the browser
+      const oneSignalData = localStorage.getItem('OneSignal');
+      if (oneSignalData) {
+        try {
+          const parsed = JSON.parse(oneSignalData);
+          console.log('OneSignal localStorage data:', parsed);
+          if (parsed.userId) {
+            console.log('Success! Got playerId from OneSignal localStorage:', parsed.userId);
+            await savePlayerId(parsed.userId);
+            setNotifEnabled(true);
+            return;
+          }
+        } catch (parseError) {
+          console.log('Failed to parse OneSignal localStorage data');
+        }
+      }
+    } catch (error) {
+      console.log('Method 6 failed:', error);
     }
 
     console.log('All methods failed to get playerId');
@@ -328,7 +382,7 @@ export default function ChatPage() {
         console.log('OneSignal initialized successfully');
 
         // Wait a bit for OneSignal to fully initialize
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Check if notifications are supported
         if ('Notification' in window) {
@@ -348,7 +402,7 @@ export default function ChatPage() {
             
             if (result === 'granted') {
               // Wait longer for OneSignal to register
-              await new Promise(resolve => setTimeout(resolve, 3000));
+              await new Promise(resolve => setTimeout(resolve, 5000));
               await getAndSavePlayerId();
             }
           }
@@ -356,9 +410,9 @@ export default function ChatPage() {
 
         // Set up event listeners
         try {
-          OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
-            console.log('OneSignal permission changed:', permission);
-            if (permission === 'granted') {
+          OneSignal.on('subscriptionChange', async (isSubscribed: boolean) => {
+            console.log('OneSignal subscription changed:', isSubscribed);
+            if (isSubscribed) {
               await new Promise(resolve => setTimeout(resolve, 2000));
               await getAndSavePlayerId();
             } else {
@@ -674,9 +728,20 @@ export default function ChatPage() {
       console.log('Permission result:', result);
       
       if (result === 'granted') {
-        // Wait for OneSignal to register
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await getAndSavePlayerId();
+        // Try to trigger OneSignal subscription
+        try {
+          console.log('Triggering OneSignal subscription...');
+          await OneSignal.showSlidedownPrompt();
+          
+          // Wait for OneSignal to register
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await getAndSavePlayerId();
+        } catch (error) {
+          console.log('OneSignal subscription failed, trying direct approach...');
+          // Wait for OneSignal to register
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await getAndSavePlayerId();
+        }
       }
     } catch (error) {
       console.error('Error enabling notifications:', error);
@@ -954,6 +1019,23 @@ export default function ChatPage() {
     setIsSidebarOpen((prev) => !prev);
   };
 
+  const forceOneSignalSubscription = async () => {
+    if (!currentUser?.id) return;
+    try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+      console.log('Forcing OneSignal subscription...');
+      await OneSignal.showSlidedownPrompt();
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      await getAndSavePlayerId();
+      console.log('OneSignal subscription forced successfully.');
+    } catch (error) {
+      console.error('Error forcing OneSignal subscription:', error);
+    }
+  };
 
 
   return (
@@ -1097,6 +1179,10 @@ export default function ChatPage() {
                         <DropdownMenuItem onClick={getAndSavePlayerId}>
                           <Bell className="mr-2 h-4 w-4" />
                           Test Get PlayerId
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={forceOneSignalSubscription}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Force OneSignal Subscription
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
