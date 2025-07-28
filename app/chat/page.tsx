@@ -47,12 +47,19 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { getCurrentUser, authenticatedFetch, logout } from "@/lib/clientAuth"
-import OneSignal from 'react-onesignal';
 import socketManager from "@/lib/socket"
 import config from "@/lib/config"
 import WebRTCManager from "@/lib/webrtc"
 import type { CallState } from "@/lib/webrtc"
 import { useRouter } from 'next/navigation';
+
+// Dynamic import for OneSignal to prevent SSR issues
+let OneSignal: any = null;
+if (typeof window !== 'undefined') {
+  import('react-onesignal').then((module) => {
+    OneSignal = module.default;
+  });
+}
 
 interface Contact {
   id: string
@@ -191,6 +198,12 @@ export default function ChatPage() {
     
     const initializeOneSignal = async () => {
       try {
+        // Ensure OneSignal is loaded
+        if (!OneSignal) {
+          const module = await import('react-onesignal');
+          OneSignal = module.default;
+        }
+        
         console.log('Initializing OneSignal...');
         
         // Initialize OneSignal
@@ -224,11 +237,11 @@ export default function ChatPage() {
         console.log('OneSignal initialized successfully');
 
         // Check if user is already subscribed
-        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        const isSubscribed = await OneSignal.isPushNotificationsEnabled();
         console.log('User subscription status:', isSubscribed);
         
         if (isSubscribed) {
-          const playerId = await (OneSignal as any).getUserId();
+          const playerId = await OneSignal.getUserId();
           if (playerId) {
             console.log('Found existing playerId:', playerId);
             await savePlayerId(playerId);
@@ -237,14 +250,14 @@ export default function ChatPage() {
         } else {
           // Show notification prompt
           console.log('Showing notification prompt...');
-          await (OneSignal as any).showSlidedownPrompt();
+          await OneSignal.showSlidedownPrompt();
         }
 
         // Set up subscription change listener
-        (OneSignal as any).on('subscriptionChange', async (isSubscribed: boolean) => {
+        OneSignal.on('subscriptionChange', async (isSubscribed: boolean) => {
           console.log('Subscription changed:', isSubscribed);
           if (isSubscribed) {
-            const playerId = await (OneSignal as any).getUserId();
+            const playerId = await OneSignal.getUserId();
             if (playerId) {
               console.log('New playerId received:', playerId);
               await savePlayerId(playerId);
@@ -534,7 +547,13 @@ export default function ChatPage() {
       if (!currentUser?.id) return;
       
       try {
-        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        // Ensure OneSignal is loaded
+        if (!OneSignal) {
+          const module = await import('react-onesignal');
+          OneSignal = module.default;
+        }
+        
+        const isSubscribed = await OneSignal.isPushNotificationsEnabled();
         setNotifEnabled(isSubscribed);
         console.log('Notification status checked:', isSubscribed);
       } catch (error) {
@@ -559,16 +578,22 @@ export default function ChatPage() {
   const enableNotifications = async () => {
     if (!currentUser) return;
     try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+      
       console.log('Requesting OneSignal notification permission...');
       
       // Show OneSignal notification prompt
-      await (OneSignal as any).showSlidedownPrompt();
+      await OneSignal.showSlidedownPrompt();
       
       // Check if permission was granted
-      const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+      const isSubscribed = await OneSignal.isPushNotificationsEnabled();
       if (isSubscribed) {
         setNotifEnabled(true);
-        const playerId = await (OneSignal as any).getUserId();
+        const playerId = await OneSignal.getUserId();
         if (playerId) {
           console.log('Notification enabled, playerId:', playerId);
           // Save playerId to backend

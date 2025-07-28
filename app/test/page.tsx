@@ -5,9 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Bell, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import OneSignal from 'react-onesignal';
 import config from '@/lib/config';
 import { getCurrentUser } from '@/lib/clientAuth';
+
+// Dynamic import for OneSignal to prevent SSR issues
+let OneSignal: any = null;
+if (typeof window !== 'undefined') {
+  import('react-onesignal').then((module) => {
+    OneSignal = module.default;
+  });
+}
 
 export default function TestPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -27,6 +34,12 @@ export default function TestPage() {
   const initializeOneSignal = async () => {
     setLoading(true);
     try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+      
       console.log('Initializing OneSignal...');
       await OneSignal.init({
         appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
@@ -55,11 +68,11 @@ export default function TestPage() {
         serviceWorkerParam: { scope: '/' }
       });
       
-      const subscribed = await (OneSignal as any).isPushNotificationsEnabled();
+      const subscribed = await OneSignal.isPushNotificationsEnabled();
       setIsSubscribed(subscribed);
       
       if (subscribed) {
-        const id = await (OneSignal as any).getUserId();
+        const id = await OneSignal.getUserId();
         setPlayerId(id);
       }
       
@@ -74,16 +87,22 @@ export default function TestPage() {
   const requestNotificationPermission = async () => {
     setLoading(true);
     try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+      
       console.log('Requesting notification permission...');
-      await (OneSignal as any).showSlidedownPrompt();
+      await OneSignal.showSlidedownPrompt();
       
       // Check status after a delay
       setTimeout(async () => {
-        const subscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        const subscribed = await OneSignal.isPushNotificationsEnabled();
         setIsSubscribed(subscribed);
         
         if (subscribed) {
-          const id = await (OneSignal as any).getUserId();
+          const id = await OneSignal.getUserId();
           setPlayerId(id);
           console.log('Permission granted, playerId:', id);
         }
