@@ -25,8 +25,7 @@ class WebRTCManager {
   private localStream: MediaStream | null = null
   private remoteStream: MediaStream | null = null
   private onCallStateChange: ((state: CallState) => void) | null = null
-  private ringtone: HTMLAudioElement | null = null
-  private connectionSound: HTMLAudioElement | null = null
+  // Removed ringtone and connectionSound logic
   private callStartTime: number = 0
   private currentCallState: CallState = {
     isIncoming: false,
@@ -54,14 +53,14 @@ class WebRTCManager {
       console.log('Incoming call:', data)
       this.currentCallState.isIncoming = true
       this.currentCallState.callData = data
-      this.playRingtone()
+      // Removed this.playRingtone()
       this.notifyStateChange()
     })
 
     // Handle call accepted
     this.socket.on('call_accepted', async (data: CallData) => {
       console.log('Call accepted:', data)
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.currentCallState.isOutgoing = false
       this.currentCallState.callData = data
       
@@ -85,14 +84,14 @@ class WebRTCManager {
     // Handle call rejected
     this.socket.on('call_rejected', () => {
       console.log('Call rejected')
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.resetCallState()
     })
 
     // Handle call ended
     this.socket.on('call_ended', () => {
       console.log('Call ended')
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.endCall()
     })
 
@@ -189,7 +188,7 @@ class WebRTCManager {
         console.log('WebRTC connection established successfully')
         this.currentCallState.isConnected = true
         this.callStartTime = Date.now()
-        this.playConnectionSound()
+        // Removed this.playConnectionSound()
         
         // Delay state notification to prevent audio element re-render issues
         setTimeout(() => {
@@ -307,7 +306,7 @@ class WebRTCManager {
       if (!this.currentCallState.callData) return false
 
       console.log('Accepting call...')
-      this.stopRingtone()
+      // Removed this.stopRingtone()
 
       // Always create a new peer connection for each call
       this.initializePeerConnection();
@@ -349,7 +348,7 @@ class WebRTCManager {
   }
 
   rejectCall() {
-    this.stopRingtone()
+    // Removed this.stopRingtone()
     if (this.currentCallState.callData) {
       this.socket.emit('reject_call', this.currentCallState.callData)
     }
@@ -357,7 +356,7 @@ class WebRTCManager {
   }
 
   endCall() {
-    this.stopRingtone()
+    // Removed this.stopRingtone()
     if (this.currentCallState.callData) {
       this.socket.emit('end_call', this.currentCallState.callData)
     }
@@ -373,8 +372,7 @@ class WebRTCManager {
       this.localStream = null
     }
 
-    // Stop ringtone
-    this.stopRingtone()
+    // Removed ringtone logic
 
     // Reset call state
     this.currentCallState = {
@@ -503,29 +501,8 @@ class WebRTCManager {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   }
 
-  private playRingtone() {
-    if (!this.ringtone) {
-      this.ringtone = new Audio('/ringtone.mp3');
-      this.ringtone.loop = true;
-      this.ringtone.volume = 1.0;
-    }
-    this.ringtone.currentTime = 0;
-    this.ringtone.play().catch((e) => {
-      console.log('Ringtone play failed:', e);
-    });
-  }
-
-  private stopRingtone() {
-    if (this.ringtone) {
-      this.ringtone.pause();
-      this.ringtone.currentTime = 0;
-    }
-  }
-
-  private playConnectionSound() {
-    // Skip connection sound for now to prevent call cutting
-    console.log('Connection sound disabled to prevent call issues')
-  }
+  // Removed playRingtone and stopRingtone methods
+  // Removed playConnectionSound method
 }
 
 export default WebRTCManager 
