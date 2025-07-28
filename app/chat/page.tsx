@@ -236,37 +236,89 @@ export default function ChatPage() {
 
         console.log('OneSignal initialized successfully');
 
-        // Check if user is already subscribed
-        const isSubscribed = await OneSignal.isPushNotificationsEnabled();
-        console.log('User subscription status:', isSubscribed);
-        
-        if (isSubscribed) {
-          const playerId = await OneSignal.getUserId();
-          if (playerId) {
-            console.log('Found existing playerId:', playerId);
-            await savePlayerId(playerId);
-            setNotifEnabled(true);
+        // Try different API methods to check subscription status
+        let isSubscribed = false;
+        let playerId = null;
+
+        try {
+          // Method 1: Try the new API
+          isSubscribed = await OneSignal.Notifications.isPushSupported();
+          console.log('OneSignal push supported (new API):', isSubscribed);
+          
+          if (isSubscribed) {
+            const permission = await OneSignal.Notifications.permission;
+            console.log('Notification permission:', permission);
+            
+            if (permission === 'granted') {
+              playerId = await OneSignal.User.getOneSignalId();
+              console.log('Found existing playerId (new API):', playerId);
+            } else {
+              // Show notification prompt
+              console.log('Showing notification prompt...');
+              await OneSignal.Notifications.requestPermission();
+            }
           }
-        } else {
-          // Show notification prompt
-          console.log('Showing notification prompt...');
-          await OneSignal.showSlidedownPrompt();
+        } catch (error) {
+          console.log('New API failed, trying fallback methods...');
+          
+          try {
+            // Method 2: Try the old API
+            isSubscribed = await OneSignal.isPushNotificationsEnabled();
+            console.log('OneSignal push enabled (old API):', isSubscribed);
+            
+            if (isSubscribed) {
+              playerId = await OneSignal.getUserId();
+              console.log('Found existing playerId (old API):', playerId);
+            } else {
+              // Show notification prompt
+              console.log('Showing notification prompt (old API)...');
+              await OneSignal.showSlidedownPrompt();
+            }
+          } catch (fallbackError) {
+            console.log('Old API also failed, trying basic permission check...');
+            
+            // Method 3: Try basic browser notification permission
+            if ('Notification' in window) {
+              const permission = Notification.permission;
+              isSubscribed = permission === 'granted';
+              console.log('Browser notification permission:', permission);
+              
+              if (permission === 'default') {
+                // Request permission
+                const result = await Notification.requestPermission();
+                isSubscribed = result === 'granted';
+                console.log('Permission request result:', result);
+              }
+            }
+          }
         }
 
-        // Set up subscription change listener
-        OneSignal.on('subscriptionChange', async (isSubscribed: boolean) => {
-          console.log('Subscription changed:', isSubscribed);
-          if (isSubscribed) {
-            const playerId = await OneSignal.getUserId();
-            if (playerId) {
-              console.log('New playerId received:', playerId);
-              await savePlayerId(playerId);
-              setNotifEnabled(true);
+        // Save playerId if we found one
+        if (playerId) {
+          await savePlayerId(playerId);
+          setNotifEnabled(true);
+        } else if (isSubscribed) {
+          setNotifEnabled(true);
+        }
+
+        // Set up event listeners if available
+        try {
+          OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
+            console.log('Permission changed:', permission);
+            if (permission === 'granted') {
+              const newPlayerId = await OneSignal.User.getOneSignalId();
+              if (newPlayerId) {
+                console.log('New playerId received:', newPlayerId);
+                await savePlayerId(newPlayerId);
+                setNotifEnabled(true);
+              }
+            } else {
+              setNotifEnabled(false);
             }
-          } else {
-            setNotifEnabled(false);
-          }
-        });
+          });
+        } catch (error) {
+          console.log('Could not set up permission change listener');
+        }
 
       } catch (error) {
         console.error('OneSignal initialization error:', error);
@@ -553,7 +605,7 @@ export default function ChatPage() {
           OneSignal = module.default;
         }
         
-        const isSubscribed = await OneSignal.isPushNotificationsEnabled();
+        const isSubscribed = await OneSignal.Notifications.isPushSupported();
         setNotifEnabled(isSubscribed);
         console.log('Notification status checked:', isSubscribed);
       } catch (error) {
@@ -587,13 +639,13 @@ export default function ChatPage() {
       console.log('Requesting OneSignal notification permission...');
       
       // Show OneSignal notification prompt
-      await OneSignal.showSlidedownPrompt();
+      await OneSignal.Notifications.requestPermission();
       
       // Check if permission was granted
-      const isSubscribed = await OneSignal.isPushNotificationsEnabled();
+      const isSubscribed = await OneSignal.Notifications.permission === 'granted';
       if (isSubscribed) {
         setNotifEnabled(true);
-        const playerId = await OneSignal.getUserId();
+        const playerId = await OneSignal.User.getOneSignalId();
         if (playerId) {
           console.log('Notification enabled, playerId:', playerId);
           // Save playerId to backend

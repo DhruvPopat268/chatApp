@@ -68,15 +68,18 @@ export default function TestPage() {
         serviceWorkerParam: { scope: '/' }
       });
       
-      const subscribed = await OneSignal.isPushNotificationsEnabled();
-      setIsSubscribed(subscribed);
+      const isSupported = await OneSignal.Notifications.isPushSupported();
+      setIsSubscribed(isSupported);
       
-      if (subscribed) {
-        const id = await OneSignal.getUserId();
-        setPlayerId(id);
+      if (isSupported) {
+        const permission = await OneSignal.Notifications.permission;
+        if (permission === 'granted') {
+          const id = await OneSignal.User.getOneSignalId();
+          setPlayerId(id);
+        }
       }
       
-      console.log('OneSignal initialized, subscribed:', subscribed);
+      console.log('OneSignal initialized, supported:', isSupported);
     } catch (error) {
       console.error('OneSignal initialization error:', error);
     } finally {
@@ -94,15 +97,16 @@ export default function TestPage() {
       }
       
       console.log('Requesting notification permission...');
-      await OneSignal.showSlidedownPrompt();
+      await OneSignal.Notifications.requestPermission();
       
       // Check status after a delay
       setTimeout(async () => {
-        const subscribed = await OneSignal.isPushNotificationsEnabled();
+        const permission = await OneSignal.Notifications.permission;
+        const subscribed = permission === 'granted';
         setIsSubscribed(subscribed);
         
         if (subscribed) {
-          const id = await OneSignal.getUserId();
+          const id = await OneSignal.User.getOneSignalId();
           setPlayerId(id);
           console.log('Permission granted, playerId:', id);
         }
