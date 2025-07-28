@@ -39,6 +39,29 @@ const pushSubscriptions = new Map();
 
 const axios = require('axios');
 
+// Function to validate OneSignal playerId
+async function validateOneSignalPlayerId(playerId) {
+  try {
+    if (!process.env.ONESIGNAL_REST_API_KEY) {
+      console.error('OneSignal REST API key not configured');
+      return false;
+    }
+    
+    const response = await axios.get(`https://onesignal.com/api/v1/players/${playerId}`, {
+      headers: {
+        'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // If we get a successful response, the playerId is valid
+    return response.status === 200 && response.data;
+  } catch (error) {
+    console.log('PlayerId validation failed:', error.response?.data || error.message);
+    return false;
+  }
+}
+
 // Save OneSignal player ID for user
 app.post('/api/save-onesignal-id', async (req, res) => {
   try {
@@ -198,6 +221,43 @@ app.post('/api/debug/clear-player/:userId', async (req, res) => {
   }
 });
 
+// Endpoint to clear all invalid playerIds
+app.post('/api/debug/clear-all-invalid-players', async (req, res) => {
+  try {
+    const users = await User.find({ oneSignalPlayerId: { $exists: true, $ne: null } });
+    const results = [];
+    
+    for (const user of users) {
+      const isValid = await validateOneSignalPlayerId(user.oneSignalPlayerId);
+      if (!isValid) {
+        await User.updateOne({ _id: user._id }, { $unset: { oneSignalPlayerId: 1 } });
+        results.push({
+          userId: user._id,
+          username: user.username,
+          playerId: user.oneSignalPlayerId,
+          cleared: true
+        });
+      } else {
+        results.push({
+          userId: user._id,
+          username: user.username,
+          playerId: user.oneSignalPlayerId,
+          cleared: false
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Invalid playerIds cleared successfully.',
+      results
+    });
+  } catch (error) {
+    console.error('Clear all invalid players error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Socket.IO connection handling
 const connectedUsers = new Map(); // userId -> socketId
 // Track last seen for users
@@ -258,6 +318,21 @@ io.on('connection', (socket) => {
         if (playerId) {
           console.log('Found playerId for user', receiverId, ':', playerId);
           
+          // Validate the playerId before sending notification
+          const isValidPlayer = await validateOneSignalPlayerId(playerId);
+          if (!isValidPlayer) {
+            console.log('Invalid playerId detected for user', receiverId, '. Clearing it.');
+            try {
+              await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+              console.log('Invalid playerId cleared for user', receiverId);
+            } catch (clearError) {
+              console.error('Error clearing invalid playerId:', clearError);
+            }
+            return; // Don't send notification if playerId is invalid
+          }
+          
+          console.log('PlayerId validated successfully for user', receiverId);
+          
           try {
             // Check if OneSignal environment variables are set
             if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) {
@@ -287,15 +362,36 @@ io.on('connection', (socket) => {
             });
             
             console.log('OneSignal push notification sent successfully to user', receiverId, 'Response:', notificationResponse.data);
+            
+            // Check if the notification was actually sent successfully
+            if (notificationResponse.data.id === '' || notificationResponse.data.errors) {
+              console.error('OneSignal notification failed for user', receiverId, ':', notificationResponse.data);
+              
+              // If the player is not subscribed, clear the invalid playerId
+              if (notificationResponse.data.errors && notificationResponse.data.errors.includes('All included players are not subscribed')) {
+                console.log('Clearing invalid playerId for user', receiverId);
+                try {
+                  await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+                  console.log('Invalid playerId cleared for user', receiverId);
+                } catch (clearError) {
+                  console.error('Error clearing invalid playerId:', clearError);
+                }
+              }
+            } else {
+              console.log('OneSignal notification sent successfully with ID:', notificationResponse.data.id);
+            }
           } catch (err) {
             console.error('OneSignal push notification error for user', receiverId, ':', err.response?.data || err.message);
             
-            // If the error is about invalid player ID, let's try to get a fresh one
+            // If the error is about invalid player ID, clear it
             if (err.response?.data?.errors && err.response.data.errors.includes('All included players are not subscribed')) {
-              console.log('Player ID appears to be invalid. User may need to re-subscribe to notifications.');
-              
-              // You could implement a mechanism to clear the invalid playerId here
-              // await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+              console.log('Player ID appears to be invalid. Clearing it for user', receiverId);
+              try {
+                await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+                console.log('Invalid playerId cleared for user', receiverId);
+              } catch (clearError) {
+                console.error('Error clearing invalid playerId:', clearError);
+              }
             }
           }
         } else {
