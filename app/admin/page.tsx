@@ -67,14 +67,14 @@ export default function AdminDashboard() {
     return () => window.removeEventListener("resize", checkMobile)
   }, [])
 
-  // Add admin localStorage check
   useEffect(() => {
+    // Only run on client
     if (typeof window !== 'undefined') {
-      
-      
       const adminUsername = localStorage.getItem('adminUsername');
       if (!adminUsername) {
         router.push('/admin/login');
+      } else {
+        setLoading(false);
       }
     }
   }, [router]);
