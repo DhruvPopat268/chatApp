@@ -192,25 +192,25 @@ export default function ChatPage() {
     }
   }, [router]);
 
-  const getAndSavePlayerId = async () => {
-    console.log('Attempting to get playerId (Subscription ID)...');
-    // Use the correct property: OneSignal.User.onesignalId
-    try {
-      const playerId = OneSignal.User && OneSignal.User.onesignalId;
-      console.log('Subscription ID (playerId) found:', playerId);
-      if (playerId) {
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
-      }
-    } catch (error) {
-      console.log('Failed to get Subscription ID (playerId):', error);
+const getAndSavePlayerId = async () => {
+  console.log('Attempting to get Subscription ID (playerId)...');
+  try {
+    // this is subscription id
+    const playerId = await OneSignal.getUserId();
+    console.log('Subscription ID (playerId) found:', subscriptionId);
+    if (playerId) {
+      await savePlayerId(playerId);
+      setNotifEnabled(true);
+      return;
     }
-    // Fallbacks (if needed) ...
-    // (You can keep other fallback logic if you want, but the above is the correct way)
-    console.log('All methods failed to get playerId');
-    setNotifEnabled(false);
-  };
+  } catch (error) {
+    console.log('Failed to get Subscription ID (playerId):', error);
+  }
+
+  console.log('All methods failed to get playerId');
+  setNotifEnabled(false);
+};
+
 
   const savePlayerId = async (playerId: string) => {
     if (!currentUser?.id) return;
