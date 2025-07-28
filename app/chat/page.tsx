@@ -621,12 +621,12 @@ export default function ChatPage() {
           // Wait for OneSignal to register
           await new Promise(resolve => setTimeout(resolve, 5000));
           await getAndSaveSubscriptionId();
-          await getAndSavePlayerId();
+          await getAndSaveSubscriptionId();
         } catch (error) {
           console.log('OneSignal subscription failed, trying direct approach...');
           // Wait for OneSignal to register
           await new Promise(resolve => setTimeout(resolve, 5000));
-          await getAndSavePlayerId();
+          await getAndSaveSubscriptionId();
         }
       }
     } catch (error) {
@@ -916,7 +916,7 @@ export default function ChatPage() {
       console.log('Forcing OneSignal subscription...');
       await OneSignal.showSlidedownPrompt();
       await new Promise(resolve => setTimeout(resolve, 5000));
-      await getAndSavePlayerId();
+      await getAndSaveSubscriptionId();
       console.log('OneSignal subscription forced successfully.');
     } catch (error) {
       console.error('Error forcing OneSignal subscription:', error);
@@ -929,7 +929,7 @@ export default function ChatPage() {
       console.log('Testing playerId retrieval...');
       // Wait a bit to ensure OneSignal is fully initialized
       await new Promise(resolve => setTimeout(resolve, 2000));
-      await getAndSavePlayerId();
+      await getAndSaveSubscriptionId();
       console.log('PlayerId retrieval test completed.');
     } catch (error) {
       console.error('Error testing playerId retrieval:', error);
@@ -1089,7 +1089,7 @@ export default function ChatPage() {
                           <Bell className="mr-2 h-4 w-4" />
                           {notifEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={getAndSavePlayerId}>
+                        <DropdownMenuItem onClick={getAndSaveSubscriptionId}>
                           <Bell className="mr-2 h-4 w-4" />
                           Test Get PlayerId
                         </DropdownMenuItem>
