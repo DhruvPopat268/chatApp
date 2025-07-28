@@ -16,7 +16,7 @@ const nextConfig = {
     }
     return config;
   },
-  async headers() {
+  headers: async () => {
     return [
       {
         source: '/OneSignalSDKWorker.js',
@@ -24,6 +24,10 @@ const nextConfig = {
           {
             key: 'Service-Worker-Allowed',
             value: '/',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache',
           },
         ],
       },
@@ -33,6 +37,10 @@ const nextConfig = {
           {
             key: 'Service-Worker-Allowed',
             value: '/',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache',
           },
         ],
       },

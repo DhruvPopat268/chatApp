@@ -206,29 +206,9 @@ export default function ChatPage() {
         
         console.log('Initializing OneSignal...');
         
-        // Initialize OneSignal
+        // Initialize OneSignal with simpler configuration
         await OneSignal.init({
           appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
-          notifyButton: {
-            enable: true,
-            prenotify: true,
-            showCredit: false,
-            text: {
-              'tip.state.unsubscribed': 'Subscribe to notifications',
-              'tip.state.subscribed': 'You are subscribed to notifications',
-              'tip.state.blocked': 'You have blocked notifications',
-              'message.prenotify': 'Click to subscribe to notifications',
-              'message.action.subscribed': "Thanks for subscribing!",
-              'message.action.resubscribed': "You're subscribed to notifications",
-              'message.action.unsubscribed': "You won't receive notifications again",
-              'message.action.subscribing': 'Subscribing...',
-              'dialog.main.title': 'Manage Site Notifications',
-              'dialog.main.button.subscribe': 'SUBSCRIBE',
-              'dialog.main.button.unsubscribe': 'UNSUBSCRIBE',
-              'dialog.blocked.title': 'Unblock Notifications',
-              'dialog.blocked.message': 'Follow instructions to allow notifications',
-            }
-          },
           allowLocalhostAsSecureOrigin: true,
           serviceWorkerPath: '/OneSignalSDKWorker.js',
           serviceWorkerParam: { scope: '/' }
@@ -236,80 +216,74 @@ export default function ChatPage() {
 
         console.log('OneSignal initialized successfully');
 
-        // Try different API methods to check subscription status
-        let isSubscribed = false;
-        let playerId = null;
+        // Wait a bit for OneSignal to fully initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        try {
-          // Method 1: Try the new API
-          isSubscribed = await OneSignal.Notifications.isPushSupported();
-          console.log('OneSignal push supported (new API):', isSubscribed);
+        // Check if notifications are supported
+        if ('Notification' in window) {
+          console.log('Browser notifications supported');
           
-          if (isSubscribed) {
-            const permission = await OneSignal.Notifications.permission;
-            console.log('Notification permission:', permission);
-            
-            if (permission === 'granted') {
-              playerId = await OneSignal.User.getOneSignalId();
-              console.log('Found existing playerId (new API):', playerId);
-            } else {
-              // Show notification prompt
-              console.log('Showing notification prompt...');
-              await OneSignal.Notifications.requestPermission();
-            }
-          }
-        } catch (error) {
-          console.log('New API failed, trying fallback methods...');
+          // Check current permission
+          const permission = Notification.permission;
+          console.log('Current notification permission:', permission);
           
-          try {
-            // Method 2: Try the old API
-            isSubscribed = await OneSignal.isPushNotificationsEnabled();
-            console.log('OneSignal push enabled (old API):', isSubscribed);
-            
-            if (isSubscribed) {
-              playerId = await OneSignal.getUserId();
-              console.log('Found existing playerId (old API):', playerId);
-            } else {
-              // Show notification prompt
-              console.log('Showing notification prompt (old API)...');
-              await OneSignal.showSlidedownPrompt();
+          if (permission === 'granted') {
+            // Try to get OneSignal player ID
+            try {
+              const playerId = await OneSignal.User.getOneSignalId();
+              if (playerId) {
+                console.log('Found OneSignal playerId:', playerId);
+                await savePlayerId(playerId);
+                setNotifEnabled(true);
+              }
+            } catch (error) {
+              console.log('Could not get OneSignal playerId, trying alternative method...');
+              // Try alternative method
+              try {
+                const playerId = await OneSignal.getUserId();
+                if (playerId) {
+                  console.log('Found OneSignal playerId (alternative):', playerId);
+                  await savePlayerId(playerId);
+                  setNotifEnabled(true);
+                }
+              } catch (altError) {
+                console.log('Alternative method also failed');
+              }
             }
-          } catch (fallbackError) {
-            console.log('Old API also failed, trying basic permission check...');
+          } else if (permission === 'default') {
+            // Request permission
+            console.log('Requesting notification permission...');
+            const result = await Notification.requestPermission();
+            console.log('Permission request result:', result);
             
-            // Method 3: Try basic browser notification permission
-            if ('Notification' in window) {
-              const permission = Notification.permission;
-              isSubscribed = permission === 'granted';
-              console.log('Browser notification permission:', permission);
+            if (result === 'granted') {
+              // Wait a bit for OneSignal to register
+              await new Promise(resolve => setTimeout(resolve, 2000));
               
-              if (permission === 'default') {
-                // Request permission
-                const result = await Notification.requestPermission();
-                isSubscribed = result === 'granted';
-                console.log('Permission request result:', result);
+              // Try to get player ID
+              try {
+                const playerId = await OneSignal.User.getOneSignalId();
+                if (playerId) {
+                  console.log('Got playerId after permission grant:', playerId);
+                  await savePlayerId(playerId);
+                  setNotifEnabled(true);
+                }
+              } catch (error) {
+                console.log('Could not get playerId after permission grant');
               }
             }
           }
         }
 
-        // Save playerId if we found one
-        if (playerId) {
-          await savePlayerId(playerId);
-          setNotifEnabled(true);
-        } else if (isSubscribed) {
-          setNotifEnabled(true);
-        }
-
-        // Set up event listeners if available
+        // Set up event listeners
         try {
           OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
-            console.log('Permission changed:', permission);
+            console.log('OneSignal permission changed:', permission);
             if (permission === 'granted') {
-              const newPlayerId = await OneSignal.User.getOneSignalId();
-              if (newPlayerId) {
-                console.log('New playerId received:', newPlayerId);
-                await savePlayerId(newPlayerId);
+              const playerId = await OneSignal.User.getOneSignalId();
+              if (playerId) {
+                console.log('New playerId received:', playerId);
+                await savePlayerId(playerId);
                 setNotifEnabled(true);
               }
             } else {
@@ -317,7 +291,7 @@ export default function ChatPage() {
             }
           });
         } catch (error) {
-          console.log('Could not set up permission change listener');
+          console.log('Could not set up OneSignal event listener');
         }
 
       } catch (error) {
@@ -628,7 +602,8 @@ export default function ChatPage() {
   };
 
   const enableNotifications = async () => {
-    if (!currentUser) return;
+    if (!currentUser?.id) return;
+    
     try {
       // Ensure OneSignal is loaded
       if (!OneSignal) {
@@ -636,37 +611,60 @@ export default function ChatPage() {
         OneSignal = module.default;
       }
       
-      console.log('Requesting OneSignal notification permission...');
+      console.log('Requesting notification permission...');
       
-      // Show OneSignal notification prompt
-      await OneSignal.Notifications.requestPermission();
+      // Request permission using browser API
+      const result = await Notification.requestPermission();
+      console.log('Permission result:', result);
       
-      // Check if permission was granted
-      const isSubscribed = await OneSignal.Notifications.permission === 'granted';
-      if (isSubscribed) {
-        setNotifEnabled(true);
-        const playerId = await OneSignal.User.getOneSignalId();
-        if (playerId) {
-          console.log('Notification enabled, playerId:', playerId);
-          // Save playerId to backend
-          const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ playerId, userId: currentUser.id })
-          });
-          
-          if (response.ok) {
-            console.log('PlayerId saved successfully');
+      if (result === 'granted') {
+        // Wait for OneSignal to register
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Try to get player ID
+        try {
+          const playerId = await OneSignal.User.getOneSignalId();
+          if (playerId) {
+            console.log('Got playerId after manual permission request:', playerId);
+            await savePlayerId(playerId);
+            setNotifEnabled(true);
           } else {
-            console.error('Failed to save playerId');
+            console.log('No playerId received, trying alternative method...');
+            // Try alternative method
+            const altPlayerId = await OneSignal.getUserId();
+            if (altPlayerId) {
+              console.log('Got playerId (alternative):', altPlayerId);
+              await savePlayerId(altPlayerId);
+              setNotifEnabled(true);
+            }
           }
+        } catch (error) {
+          console.error('Error getting playerId:', error);
         }
-      } else {
-        console.log('Notification permission not granted');
-        setNotifEnabled(false);
       }
-    } catch (err) {
-      console.error('Error enabling notifications:', err);
+    } catch (error) {
+      console.error('Error enabling notifications:', error);
+    }
+  };
+
+  const savePlayerId = async (playerId: string) => {
+    if (!currentUser?.id) return;
+    
+    try {
+      console.log('Saving playerId to backend:', playerId);
+      const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, userId: currentUser.id })
+      });
+      
+      if (response.ok) {
+        console.log('PlayerId saved successfully to backend');
+      } else {
+        console.error('Failed to save playerId to backend:', response.status);
+      }
+    } catch (error) {
+      console.error('Error saving playerId:', error);
     }
   };
 
