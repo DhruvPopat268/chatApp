@@ -73,6 +73,7 @@ export default function AdminDashboard() {
       const cookies = document.cookie.split(';').map(c => c.trim());
       const adminSession = cookies.find(c => c.startsWith('admin_session='));
       if (!adminSession) {
+        console.log('No admin session found, redirecting to login');
         router.push('/admin/login');
       }
     }
