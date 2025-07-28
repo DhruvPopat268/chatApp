@@ -192,6 +192,117 @@ export default function ChatPage() {
     }
   }, [router]);
 
+  const getAndSavePlayerId = async () => {
+    console.log('Attempting to get playerId...');
+    
+    // Method 1: Try OneSignal.User.getOneSignalId()
+    try {
+      console.log('Trying OneSignal.User.getOneSignalId()...');
+      const playerId = await OneSignal.User.getOneSignalId();
+      console.log('Method 1 result:', playerId);
+      if (playerId) {
+        console.log('Success! Got playerId from method 1:', playerId);
+        await savePlayerId(playerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 1 failed:', error);
+    }
+
+    // Method 2: Try OneSignal.getUserId()
+    try {
+      console.log('Trying OneSignal.getUserId()...');
+      const playerId = await OneSignal.getUserId();
+      console.log('Method 2 result:', playerId);
+      if (playerId) {
+        console.log('Success! Got playerId from method 2:', playerId);
+        await savePlayerId(playerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 2 failed:', error);
+    }
+
+    // Method 3: Try OneSignal.User.getExternalUserId()
+    try {
+      console.log('Trying OneSignal.User.getExternalUserId()...');
+      const playerId = await OneSignal.User.getExternalUserId();
+      console.log('Method 3 result:', playerId);
+      if (playerId) {
+        console.log('Success! Got playerId from method 3:', playerId);
+        await savePlayerId(playerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 3 failed:', error);
+    }
+
+    // Method 4: Try to get from OneSignal object directly
+    try {
+      console.log('Trying to access OneSignal object directly...');
+      console.log('OneSignal object:', OneSignal);
+      
+      // Check if OneSignal has a userId property
+      if (OneSignal.userId) {
+        console.log('Success! Got playerId from OneSignal.userId:', OneSignal.userId);
+        await savePlayerId(OneSignal.userId);
+        setNotifEnabled(true);
+        return;
+      }
+      
+      // Check if OneSignal has a playerId property
+      if (OneSignal.playerId) {
+        console.log('Success! Got playerId from OneSignal.playerId:', OneSignal.playerId);
+        await savePlayerId(OneSignal.playerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 4 failed:', error);
+    }
+
+    // Method 5: Try to get from localStorage
+    try {
+      console.log('Trying to get from localStorage...');
+      const storedPlayerId = localStorage.getItem('OneSignal_playerId');
+      if (storedPlayerId) {
+        console.log('Success! Got playerId from localStorage:', storedPlayerId);
+        await savePlayerId(storedPlayerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 5 failed:', error);
+    }
+
+    console.log('All methods failed to get playerId');
+    setNotifEnabled(false);
+  };
+
+  const savePlayerId = async (playerId: string) => {
+    if (!currentUser?.id) return;
+    
+    try {
+      console.log('Saving playerId to backend:', playerId);
+      const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, userId: currentUser.id })
+      });
+      
+      if (response.ok) {
+        console.log('PlayerId saved successfully to backend');
+      } else {
+        console.error('Failed to save playerId to backend:', response.status);
+      }
+    } catch (error) {
+      console.error('Error saving playerId:', error);
+    }
+  };
+
   // Push notification setup useEffect
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -217,7 +328,7 @@ export default function ChatPage() {
         console.log('OneSignal initialized successfully');
 
         // Wait a bit for OneSignal to fully initialize
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Check if notifications are supported
         if ('Notification' in window) {
@@ -228,28 +339,7 @@ export default function ChatPage() {
           console.log('Current notification permission:', permission);
           
           if (permission === 'granted') {
-            // Try to get OneSignal player ID
-            try {
-              const playerId = await OneSignal.User.getOneSignalId();
-              if (playerId) {
-                console.log('Found OneSignal playerId:', playerId);
-                await savePlayerId(playerId);
-                setNotifEnabled(true);
-              }
-            } catch (error) {
-              console.log('Could not get OneSignal playerId, trying alternative method...');
-              // Try alternative method
-              try {
-                const playerId = await OneSignal.getUserId();
-                if (playerId) {
-                  console.log('Found OneSignal playerId (alternative):', playerId);
-                  await savePlayerId(playerId);
-                  setNotifEnabled(true);
-                }
-              } catch (altError) {
-                console.log('Alternative method also failed');
-              }
-            }
+            await getAndSavePlayerId();
           } else if (permission === 'default') {
             // Request permission
             console.log('Requesting notification permission...');
@@ -257,20 +347,9 @@ export default function ChatPage() {
             console.log('Permission request result:', result);
             
             if (result === 'granted') {
-              // Wait a bit for OneSignal to register
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              // Try to get player ID
-              try {
-                const playerId = await OneSignal.User.getOneSignalId();
-                if (playerId) {
-                  console.log('Got playerId after permission grant:', playerId);
-                  await savePlayerId(playerId);
-                  setNotifEnabled(true);
-                }
-              } catch (error) {
-                console.log('Could not get playerId after permission grant');
-              }
+              // Wait longer for OneSignal to register
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              await getAndSavePlayerId();
             }
           }
         }
@@ -280,12 +359,8 @@ export default function ChatPage() {
           OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
             console.log('OneSignal permission changed:', permission);
             if (permission === 'granted') {
-              const playerId = await OneSignal.User.getOneSignalId();
-              if (playerId) {
-                console.log('New playerId received:', playerId);
-                await savePlayerId(playerId);
-                setNotifEnabled(true);
-              }
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              await getAndSavePlayerId();
             } else {
               setNotifEnabled(false);
             }
@@ -296,25 +371,6 @@ export default function ChatPage() {
 
       } catch (error) {
         console.error('OneSignal initialization error:', error);
-      }
-    };
-
-    const savePlayerId = async (playerId: string) => {
-      try {
-        console.log('Saving playerId to backend:', playerId);
-        const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId, userId: currentUser.id })
-        });
-        
-        if (response.ok) {
-          console.log('PlayerId saved successfully to backend');
-        } else {
-          console.error('Failed to save playerId to backend:', response.status);
-        }
-      } catch (error) {
-        console.error('Error saving playerId:', error);
       }
     };
 
@@ -619,52 +675,11 @@ export default function ChatPage() {
       
       if (result === 'granted') {
         // Wait for OneSignal to register
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Try to get player ID
-        try {
-          const playerId = await OneSignal.User.getOneSignalId();
-          if (playerId) {
-            console.log('Got playerId after manual permission request:', playerId);
-            await savePlayerId(playerId);
-            setNotifEnabled(true);
-          } else {
-            console.log('No playerId received, trying alternative method...');
-            // Try alternative method
-            const altPlayerId = await OneSignal.getUserId();
-            if (altPlayerId) {
-              console.log('Got playerId (alternative):', altPlayerId);
-              await savePlayerId(altPlayerId);
-              setNotifEnabled(true);
-            }
-          }
-        } catch (error) {
-          console.error('Error getting playerId:', error);
-        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await getAndSavePlayerId();
       }
     } catch (error) {
       console.error('Error enabling notifications:', error);
-    }
-  };
-
-  const savePlayerId = async (playerId: string) => {
-    if (!currentUser?.id) return;
-    
-    try {
-      console.log('Saving playerId to backend:', playerId);
-      const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId, userId: currentUser.id })
-      });
-      
-      if (response.ok) {
-        console.log('PlayerId saved successfully to backend');
-      } else {
-        console.error('Failed to save playerId to backend:', response.status);
-      }
-    } catch (error) {
-      console.error('Error saving playerId:', error);
     }
   };
 
@@ -1076,8 +1091,12 @@ export default function ChatPage() {
                           My Profile
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={enableNotifications}>
-                          <Bell className="h-4 w-4 mr-2" />
+                          <Bell className="mr-2 h-4 w-4" />
                           {notifEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={getAndSavePlayerId}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Test Get PlayerId
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
