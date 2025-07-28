@@ -358,7 +358,7 @@ io.on('connection', (socket) => {
             console.log('OneSignal push notification sent successfully to user', receiverId, 'Response:', notificationResponse.data);
             
             // Check if the notification was actually sent successfully
-            if (notificationResponse.data.id === '' || notificationResponse.data.errors) {
+            if (notificationResponse.data.errors) {
               console.error('OneSignal notification failed for user', receiverId, ':', notificationResponse.data);
               
               // If the player is not subscribed, clear the invalid playerId
