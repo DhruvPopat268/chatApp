@@ -152,15 +152,8 @@ const initialMessages: Message[] = [
 
 export default function ChatPage() {
   const router = useRouter();
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const user = getCurrentUser();
-      if (!user && window.location.pathname !== '/login') {
-        router.push('/login');
-      }
-    }
-  }, [router]);
-  // All hooks must be declared before any early return
+  
+  // All state declarations first
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
@@ -192,22 +185,32 @@ export default function ChatPage() {
     callData: null
   })
   const [incomingCallData, setIncomingCallData] = useState<any>(null)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
+  const [notifEnabled, setNotifEnabled] = useState(false);
+
+  // All refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
-  const [isUploadingImage, setIsUploadingImage] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null);
-  // Add state for image preview modal
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  // Add state for typing and online status
-  const [isTyping, setIsTyping] = useState(false);
-  const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
-  const [notifEnabled, setNotifEnabled] = useState(false);
 
-  // Push notification setup - always call the hook
+  // Authentication check useEffect
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const user = getCurrentUser();
+      if (!user && window.location.pathname !== '/login') {
+        router.push('/login');
+      }
+    }
+  }, [router]);
+
+  // Push notification setup useEffect
   useEffect(() => {
     if (!currentUser?.id) return;
     OneSignal.init({
@@ -234,7 +237,7 @@ export default function ChatPage() {
       },
       allowLocalhostAsSecureOrigin: true,
     });
-    // react-onesignal does not have .on(). Use the callback in init or addEventListener pattern
+    
     const handleSubscriptionChange = async (isSubscribed: boolean) => {
       if (isSubscribed) {
         const playerId = await (OneSignal as any).getUserId();
@@ -247,11 +250,10 @@ export default function ChatPage() {
         }
       }
     };
-    // Use OneSignal.Notifications.addEventListener if available, or polling as fallback
+    
     if ((OneSignal as any).Notifications?.addEventListener) {
       (OneSignal as any).Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
     } else {
-      // Fallback: poll for subscription status change
       let lastSubscribed = false;
       const poll = setInterval(async () => {
         const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
@@ -266,7 +268,7 @@ export default function ChatPage() {
     }
   }, [currentUser?.id]);
 
-  // All useEffect hooks must be at the top level of the function component
+  // App initialization useEffect
   useEffect(() => {
     const initializeApp = async () => {
       const user = getCurrentUser()
@@ -333,6 +335,7 @@ export default function ChatPage() {
     }
   }, [])
 
+  // Local audio stream useEffect
   useEffect(() => {
     if (localAudioRef.current && callState.localStream) {
       localAudioRef.current.srcObject = callState.localStream
@@ -348,6 +351,7 @@ export default function ChatPage() {
     }
   }, [callState.localStream])
 
+  // Remote audio stream useEffect
   useEffect(() => {
     if (remoteAudioRef.current && callState.remoteStream) {
       remoteAudioRef.current.srcObject = callState.remoteStream
@@ -363,7 +367,7 @@ export default function ChatPage() {
     }
   }, [callState.remoteStream])
 
-  // Typing indicator logic
+  // Typing indicator useEffect
   useEffect(() => {
     if (!selectedContact || !currentUser) return;
     let typingTimeout: NodeJS.Timeout;
@@ -385,14 +389,14 @@ export default function ChatPage() {
     };
   }, [selectedContact, currentUser]);
 
-  // Request status when selectedContact changes
+  // Request status useEffect
   useEffect(() => {
     if (selectedContact && socketManager.getSocket()) {
       socketManager.getSocket()?.emit('request_status', { userId: selectedContact.id });
     }
   }, [selectedContact]);
 
-  // Listen for typing and status events
+  // Socket event listeners useEffect
   useEffect(() => {
     if (!currentUser) return;
     socketManager.onUserTyping((data) => {
@@ -421,6 +425,7 @@ export default function ChatPage() {
     };
   }, [selectedContact, currentUser]);
 
+  // Message handling useEffect
   useEffect(() => {
     if (!currentUser) return;
     // Listen for new messages
@@ -470,11 +475,83 @@ export default function ChatPage() {
     };
   }, [currentUser, selectedContact]);
 
+  // Load messages useEffect
   useEffect(() => {
     if (selectedContact && currentUser) {
       loadMessages(selectedContact.id)
     }
   }, [selectedContact?.id, currentUser?.id])
+
+  // Friend search useEffect
+  useEffect(() => {
+    if (!friendSearchQuery.trim()) {
+      setSearchedUsers([]);
+      return;
+    }
+    setIsSearching(true);
+    const url = `${config.getBackendUrl()}/api/auth/search?q=${encodeURIComponent(friendSearchQuery)}`;
+    console.log('Searching users with URL:', url);
+    fetch(url)
+      .then(res => {
+        if (!res.ok) {
+          console.error('User search API error:', res.status, res.statusText);
+          return [];
+        }
+        return res.json();
+      })
+      .then(users => {
+        setSearchedUsers(
+          users.filter((u: any) =>
+            u._id !== currentUser?.id &&
+            !userContacts.some(c => c.id === u._id)
+          )
+        );
+      })
+      .catch((err) => {
+        console.error('User search fetch error:', err);
+        setSearchedUsers([])
+      })
+      .finally(() => setIsSearching(false));
+  }, [friendSearchQuery, currentUser, userContacts]);
+
+  // All other functions and logic below
+  const handleTyping = () => {
+    if (!selectedContact || !currentUser) return;
+    socketManager.sendTypingStart(selectedContact.id);
+    setTimeout(() => {
+      socketManager.sendTypingStop(selectedContact.id);
+    }, 1500);
+  };
+
+  const enableNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setNotifEnabled(true);
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+          });
+          await fetch(`${config.getBackendUrl()}/api/save-push-subscription`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription, userId: currentUser.id })
+          });
+        } catch (err) {
+          if (err instanceof DOMException) {
+            console.error('Push registration failed:', err.name, err.message);
+          } else {
+            console.error('Push registration failed', err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Notification permission error', err);
+    }
+  };
 
   // Handle input focus for mobile
   const handleInputFocus = () => {
@@ -747,81 +824,7 @@ export default function ChatPage() {
     setIsSidebarOpen((prev) => !prev);
   };
 
-  const enableNotifications = async () => {
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setNotifEnabled(false);
-        return;
-      }
-      setNotifEnabled(true);
-      // Register service worker and subscribe
-      if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-      if (!currentUser?.id) return;
-      const reg = await navigator.serviceWorker.register('/sw.js');
-      function urlBase64ToUint8Array(base64String: string) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) {
-          outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
-      }
-      const applicationServerKey = urlBase64ToUint8Array('BEBpdM1f4ieLbCS_QAvjBWfIB88PRmUot_pxEkLj9nbykz612Kf91BK0d6b9x5kK7J2mNuDmxOV8VtnsqNw7Bpo');
-      try {
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey
-        });
-        await fetch('http://localhost:7000/api/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscription, userId: currentUser.id })
-        });
-      } catch (err) {
-        if (err instanceof DOMException) {
-          console.error('Push registration failed:', err.name, err.message);
-        } else {
-          console.error('Push registration failed', err);
-        }
-      }
-    } catch (err) {
-      console.error('Notification permission error', err);
-    }
-  };
 
-  useEffect(() => {
-    if (!friendSearchQuery.trim()) {
-      setSearchedUsers([]);
-      return;
-    }
-    setIsSearching(true);
-    const url = `${config.getBackendUrl()}/api/auth/search?q=${encodeURIComponent(friendSearchQuery)}`;
-    console.log('Searching users with URL:', url);
-    fetch(url)
-      .then(res => {
-        if (!res.ok) {
-          console.error('User search API error:', res.status, res.statusText);
-          return [];
-        }
-        return res.json();
-      })
-      .then(users => {
-        setSearchedUsers(
-          users.filter((u: any) =>
-            u._id !== currentUser?.id &&
-            !userContacts.some(c => c.id === u._id)
-          )
-        );
-      })
-      .catch((err) => {
-        console.error('User search fetch error:', err);
-        setSearchedUsers([])
-      })
-      .finally(() => setIsSearching(false));
-  }, [friendSearchQuery, currentUser, userContacts]);
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">

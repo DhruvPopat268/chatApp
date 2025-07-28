@@ -50,6 +50,27 @@ router.get('/', async (req, res) => {
     }
   });
 
+// Search users endpoint
+router.get('/search', async (req, res) => {
+  const { q } = req.query;
+  
+  if (!q || typeof q !== 'string') {
+    return res.status(400).json({ error: 'Search query is required' });
+  }
+
+  try {
+    // Search for users whose username contains the query (case-insensitive)
+    const users = await User.find({
+      username: { $regex: q, $options: 'i' }
+    }).select('_id username'); // Only return id and username for security
+
+    res.status(200).json(users);
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
 // Update login route to username only
 router.post("/login", async (req, res) => {
   const { username } = req.body;
