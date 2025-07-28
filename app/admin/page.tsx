@@ -70,9 +70,10 @@ export default function AdminDashboard() {
   // Add admin localStorage check
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const cookies = document.cookie.split(';').map(c => c.trim());
-      const adminSession = cookies.find(c => c.startsWith('admin_session='));
-      if (!adminSession) {
+      
+      
+      const adminUsername = localStorage.getItem('adminUsername');
+      if (!adminUsername) {
         router.push('/admin/login');
       }
     }
