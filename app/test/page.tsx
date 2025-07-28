@@ -176,6 +176,49 @@ export default function TestPage() {
     }
   };
 
+  const testNotification = async () => {
+    if (!currentUser?.id) return;
+    
+    setLoading(true);
+    try {
+      const response = await fetch(`${config.getBackendUrl()}/api/debug/test-notification/${currentUser.id}`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Test notification result:', data);
+        alert(`Test notification sent! Check the response in console.`);
+      } else {
+        const error = await response.json();
+        console.error('Test notification failed:', error);
+        alert(`Test notification failed: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error testing notification:', error);
+      alert('Error testing notification');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkOneSignalConfig = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${config.getBackendUrl()}/api/debug/onesignal-config`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('OneSignal config:', data);
+        alert(`OneSignal Config:\nApp ID: ${data.appId}\nHas API Key: ${data.hasRestApiKey}\nApp ID Valid: ${data.appIdValid}`);
+      }
+    } catch (error) {
+      console.error('Error checking OneSignal config:', error);
+      alert('Error checking OneSignal config');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -255,6 +298,12 @@ export default function TestPage() {
               </Button>
               <Button onClick={checkAllUsers} disabled={loading}>
                 Check All Users
+              </Button>
+              <Button onClick={testNotification} disabled={loading} className="bg-orange-500 hover:bg-orange-600">
+                Test Notification
+              </Button>
+              <Button onClick={checkOneSignalConfig} disabled={loading} className="bg-purple-500 hover:bg-purple-600">
+                Check Config
               </Button>
             </div>
             

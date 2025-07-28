@@ -355,10 +355,8 @@ io.on('connection', (socket) => {
               }
             });
             
-            console.log('OneSignal push notification sent successfully to user', receiverId, 'Response:', notificationResponse.data);
-            
             // Check if the notification was actually sent successfully
-            if (notificationResponse.data.errors) {
+            if (notificationResponse.data.id === '' || notificationResponse.data.errors) {
               console.error('OneSignal notification failed for user', receiverId, ':', notificationResponse.data);
               
               // If the player is not subscribed, clear the invalid playerId
@@ -372,7 +370,7 @@ io.on('connection', (socket) => {
                 }
               }
             } else {
-              console.log('OneSignal notification sent successfully with ID:', notificationResponse.data.id);
+              console.log('OneSignal notification sent successfully to user', receiverId, 'with ID:', notificationResponse.data.id);
             }
           } catch (err) {
             console.error('OneSignal push notification error for user', receiverId, ':', err.response?.data || err.message);
@@ -523,6 +521,50 @@ app.get('/api/debug/onesignal-config', (req, res) => {
     restApiKeyLength: process.env.ONESIGNAL_REST_API_KEY ? process.env.ONESIGNAL_REST_API_KEY.length : 0,
     appIdValid: process.env.ONESIGNAL_APP_ID && process.env.ONESIGNAL_APP_ID.length === 36
   });
+});
+
+// Debug endpoint to test OneSignal notification directly
+app.post('/api/debug/test-notification/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.oneSignalPlayerId) {
+      return res.status(400).json({ error: 'User has no playerId' });
+    }
+    
+    // Test notification
+    const notificationResponse = await axios.post('https://onesignal.com/api/v1/notifications', {
+      app_id: process.env.ONESIGNAL_APP_ID,
+      include_player_ids: [user.oneSignalPlayerId],
+      headings: { en: 'Test Notification' },
+      contents: { en: 'This is a test notification from debug endpoint' },
+      url: '/chat'
+    }, {
+      headers: {
+        'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    res.json({
+      success: true,
+      response: notificationResponse.data,
+      playerId: user.oneSignalPlayerId,
+      userId: user._id,
+      username: user.username
+    });
+  } catch (error) {
+    console.error('Test notification error:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Test notification failed', 
+      details: error.response?.data || error.message 
+    });
+  }
 });
 
 mongoose.connect(process.env.MONGO_URI)
