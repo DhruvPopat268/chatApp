@@ -46,17 +46,19 @@ async function validateOneSignalPlayerId(playerId) {
       console.error('OneSignal REST API key not configured');
       return false;
     }
-    
+
     const response = await axios.get(`https://onesignal.com/api/v1/players/${playerId}`, {
       headers: {
         'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });
-    
+
     // If we get a successful response, the playerId is valid
     return response.status === 200 && response.data;
   } catch (error) {
+    console.log('Sending OneSignal notification with app_id:', process.env.ONESIGNAL_APP_ID);
+
     console.log('PlayerId validation failed:', error.response?.data || error.message);
     return false;
   }
@@ -67,23 +69,23 @@ app.post('/api/save-onesignal-id', async (req, res) => {
   try {
     const { userId, playerId } = req.body;
     console.log('Received save-onesignal-id request:', { userId, playerId });
-    
+
     if (!userId || !playerId) {
       console.error('Missing userId or playerId:', { userId, playerId });
       return res.status(400).json({ error: 'Missing userId or playerId' });
     }
-    
+
     // Check if user exists
     const user = await User.findById(userId);
     if (!user) {
       console.error('User not found:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Update user with playerId
     const result = await User.updateOne({ _id: userId }, { $set: { oneSignalPlayerId: playerId } });
     console.log('Update result:', result);
-    
+
     if (result.modifiedCount > 0) {
       console.log('PlayerId saved successfully for user:', userId);
       res.json({ success: true, message: 'PlayerId saved successfully' });
@@ -102,14 +104,14 @@ app.get('/api/debug/notifications/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     const isOnline = connectedUsers.has(userId);
     const status = userStatus.get(userId);
-    
+
     res.json({
       userId,
       username: user.username,
@@ -133,7 +135,7 @@ app.get('/api/debug/onesignal-users', async (req, res) => {
   try {
     const users = await User.find({ oneSignalPlayerId: { $exists: true, $ne: null } })
       .select('username oneSignalPlayerId createdAt');
-    
+
     res.json({
       totalUsersWithPlayerId: users.length,
       users: users
@@ -149,11 +151,11 @@ app.get('/api/debug/validate-player/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     if (!user.oneSignalPlayerId) {
       return res.json({
         userId,
@@ -162,7 +164,7 @@ app.get('/api/debug/validate-player/:userId', async (req, res) => {
         message: 'No playerId found'
       });
     }
-    
+
     // Try to validate the playerId with OneSignal
     try {
       const response = await axios.get(`https://onesignal.com/api/v1/players/${user.oneSignalPlayerId}`, {
@@ -171,7 +173,7 @@ app.get('/api/debug/validate-player/:userId', async (req, res) => {
           'Content-Type': 'application/json'
         }
       });
-      
+
       res.json({
         userId,
         username: user.username,
@@ -201,14 +203,14 @@ app.post('/api/debug/clear-player/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Clear the playerId
     await User.updateOne({ _id: userId }, { $unset: { oneSignalPlayerId: 1 } });
-    
+
     res.json({
       success: true,
       message: 'PlayerId cleared successfully. User will need to re-subscribe to notifications.',
@@ -226,7 +228,7 @@ app.post('/api/debug/clear-all-invalid-players', async (req, res) => {
   try {
     const users = await User.find({ oneSignalPlayerId: { $exists: true, $ne: null } });
     const results = [];
-    
+
     for (const user of users) {
       const isValid = await validateOneSignalPlayerId(user.oneSignalPlayerId);
       if (!isValid) {
@@ -246,7 +248,7 @@ app.post('/api/debug/clear-all-invalid-players', async (req, res) => {
         });
       }
     }
-    
+
     res.json({
       success: true,
       message: 'Invalid playerIds cleared successfully.',
@@ -287,7 +289,7 @@ io.on('connection', (socket) => {
   socket.on('send_message', async (data) => {
     try {
       const { receiverId, content, type, fileName, fileSize } = data;
-      
+
       // Save message to database
       const Message = require('./models/messageModel');
       const message = await Message.create({
@@ -314,10 +316,10 @@ io.on('connection', (socket) => {
         console.log('User', receiverId, 'is not connected. Attempting to send push notification via OneSignal.');
         const user = await User.findById(receiverId);
         const playerId = user?.oneSignalPlayerId;
-        
+
         if (playerId) {
           console.log('Found playerId for user', receiverId, ':', playerId);
-          
+
           // Validate the playerId before sending notification
           const isValidPlayer = await validateOneSignalPlayerId(playerId);
           if (!isValidPlayer) {
@@ -330,19 +332,19 @@ io.on('connection', (socket) => {
             }
             return; // Don't send notification if playerId is invalid
           }
-          
+
           console.log('PlayerId validated successfully for user', receiverId);
-          
+
           try {
             // Check if OneSignal environment variables are set
             if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) {
               console.error('OneSignal environment variables not configured');
               return;
             }
-            
+
             console.log('Sending OneSignal notification with app_id:', process.env.ONESIGNAL_APP_ID);
             console.log('Sending OneSignal notification to player_id:', playerId);
-            
+
             const notificationResponse = await axios.post('https://onesignal.com/api/v1/notifications', {
               app_id: process.env.ONESIGNAL_APP_ID,
               include_player_ids: [playerId],
@@ -360,13 +362,13 @@ io.on('connection', (socket) => {
                 'Content-Type': 'application/json'
               }
             });
-            
+
             console.log('OneSignal push notification sent successfully to user', receiverId, 'Response:', notificationResponse.data);
-            
+
             // Check if the notification was actually sent successfully
             if (notificationResponse.data.id === '' || notificationResponse.data.errors) {
               console.error('OneSignal notification failed for user', receiverId, ':', notificationResponse.data);
-              
+
               // If the player is not subscribed, clear the invalid playerId
               if (notificationResponse.data.errors && notificationResponse.data.errors.includes('All included players are not subscribed')) {
                 console.log('Clearing invalid playerId for user', receiverId);
@@ -382,7 +384,7 @@ io.on('connection', (socket) => {
             }
           } catch (err) {
             console.error('OneSignal push notification error for user', receiverId, ':', err.response?.data || err.message);
-            
+
             // If the error is about invalid player ID, clear it
             if (err.response?.data?.errors && err.response.data.errors.includes('All included players are not subscribed')) {
               console.log('Player ID appears to be invalid. Clearing it for user', receiverId);
@@ -428,7 +430,7 @@ io.on('connection', (socket) => {
   socket.on('start_call', (data) => {
     const { receiverId, callType, roomId } = data;
     const receiverSocketId = connectedUsers.get(receiverId);
-    
+
     if (receiverSocketId) {
       io.to(receiverSocketId).emit('incoming_call', {
         callerId: socket.userId,
@@ -442,7 +444,7 @@ io.on('connection', (socket) => {
   socket.on('accept_call', (data) => {
     const { callerId, roomId } = data;
     const callerSocketId = connectedUsers.get(callerId);
-    
+
     if (callerSocketId) {
       io.to(callerSocketId).emit('call_accepted', {
         callerId,
@@ -456,7 +458,7 @@ io.on('connection', (socket) => {
   socket.on('reject_call', (data) => {
     const { callerId } = data;
     const callerSocketId = connectedUsers.get(callerId);
-    
+
     if (callerSocketId) {
       io.to(callerSocketId).emit('call_rejected');
     }
@@ -466,7 +468,7 @@ io.on('connection', (socket) => {
     const { callerId, receiverId } = data;
     const callerSocketId = connectedUsers.get(callerId);
     const receiverSocketId = connectedUsers.get(receiverId);
-    
+
     if (callerSocketId) {
       io.to(callerSocketId).emit('call_ended');
     }
@@ -522,13 +524,13 @@ io.on('connection', (socket) => {
 });
 
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-        console.log("✅ MongoDB Connected");
-        server.listen(process.env.PORT, () => {
-            console.log(`🚀 Server running on http://localhost:${process.env.PORT}`);
-            console.log(`🔌 Socket.IO server ready`);
-        });
-    })
-    .catch(err => {
-        console.error("❌ MongoDB connection error:", err);
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+    server.listen(process.env.PORT, () => {
+      console.log(`🚀 Server running on http://localhost:${process.env.PORT}`);
+      console.log(`🔌 Socket.IO server ready`);
     });
+  })
+  .catch(err => {
+    console.error("❌ MongoDB connection error:", err);
+  });
