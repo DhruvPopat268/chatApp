@@ -74,7 +74,7 @@ export default function AdminDashboard() {
   
       if (adminUsername) {
         // ✅ Admin is logged in, go to dashboard
-        router.push('/admin/dashboard');
+        router.push('/admin');
       } else {
         // ❌ Not logged in, go to login page
         console.log('No admin session found, redirecting to login');
