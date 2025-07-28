@@ -129,12 +129,12 @@ const contacts: Contact[] = [
 
 const initialMessages: Message[] = [
 
-  
+
 ]
 
 export default function ChatPage() {
   const router = useRouter();
-  
+
   // All state declarations first
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
@@ -192,144 +192,131 @@ export default function ChatPage() {
     }
   }, [router]);
 
-// Helper to get Subscription ID from IndexedDB
-function getSubscriptionIdFromIndexedDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('ONE_SIGNAL_SDK_DB');
-    request.onerror = () => reject('Failed to open IndexedDB');
-    request.onsuccess = () => {
-      const db = request.result;
-      const transaction = db.transaction(['subscriptions'], 'readonly');
-      const store = transaction.objectStore('subscriptions');
-      const getAllRequest = store.getAll();
-      getAllRequest.onsuccess = () => {
-        const subs = getAllRequest.result;
-        if (subs && subs.length > 0 && subs[0].id) {
-          resolve(subs[0].id); // Subscription ID (Player ID)
-        } else {
-          reject('No subscription ID found');
-        }
+  // Helper to get Subscription ID from IndexedDB
+  function getSubscriptionIdFromIndexedDB() {
+    return new Promise<string>((resolve, reject) => {
+      const request = indexedDB.open('ONE_SIGNAL_SDK_DB');
+
+      request.onerror = () => reject('❌ Failed to open IndexedDB');
+
+      request.onsuccess = () => {
+        const db = request.result;
+        const transaction = db.transaction(['subscriptions'], 'readonly');
+        const store = transaction.objectStore('subscriptions');
+        const getAllRequest = store.getAll();
+
+        getAllRequest.onsuccess = () => {
+          const subs = getAllRequest.result;
+          if (subs && subs.length > 0 && subs[0].id) {
+            resolve(subs[0].id); // ✅ Subscription ID (aka Player ID)
+          } else {
+            reject('❌ No subscription ID found in IndexedDB');
+          }
+        };
+
+        getAllRequest.onerror = () => reject('❌ Failed to read subscriptions');
       };
-      getAllRequest.onerror = () => reject('Failed to read subscriptions');
-    };
-  });
-}
+    });
+  }
 
-const getAndSavePlayerId = async () => {
-  let playerId = OneSignal?.User?.onesignalId;
-  if (!playerId) {
-    // Fallback to IndexedDB
+
+  const getAndSaveSubscriptionId = async () => {
     try {
-      playerId = await getSubscriptionIdFromIndexedDB();
-      console.log('Got Subscription ID from IndexedDB:', playerId);
+      const subscriptionId = await getSubscriptionIdFromIndexedDB();
+      console.log('✅ Got Subscription ID from IndexedDB:', subscriptionId);
+      await saveSubscriptionId(subscriptionId);
+      setNotifEnabled(true);
     } catch (e) {
-      console.error('Failed to get Subscription ID from IndexedDB:', e);
+      console.error('❌ Failed to get or save Subscription ID:', e);
+      setNotifEnabled(false);
     }
-  }
-  if (playerId) {
-    await savePlayerId(playerId);
-    setNotifEnabled(true);
-    return;
-  }
-  setNotifEnabled(false);
-  console.log('All methods failed to get playerId');
-};
+  };
 
-  const savePlayerId = async (playerId: string) => {
+
+  const saveSubscriptionId = async (subscriptionId: string) => {
     if (!currentUser?.id) return;
-    
+
     try {
-      console.log('Saving playerId to backend:', playerId);
+      console.log('📦 Saving subscriptionId to backend:', subscriptionId);
       const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId, userId: currentUser.id })
+        body: JSON.stringify({ playerId: subscriptionId, userId: currentUser.id }) // keep playerId if backend expects it
       });
-      
+
       if (response.ok) {
-        console.log('PlayerId saved successfully to backend');
+        console.log('✅ Subscription ID saved successfully to backend');
       } else {
-        console.error('Failed to save playerId to backend:', response.status);
+        console.error('❌ Failed to save Subscription ID:', response.status);
       }
     } catch (error) {
-      console.error('Error saving playerId:', error);
+      console.error('❌ Error saving Subscription ID:', error);
     }
   };
+
 
   // Push notification setup useEffect
   useEffect(() => {
     if (!currentUser?.id) return;
-    
+  
     const initializeOneSignal = async () => {
       try {
-        // Ensure OneSignal is loaded
         if (!OneSignal) {
           const module = await import('react-onesignal');
           OneSignal = module.default;
         }
-        
-        console.log('Initializing OneSignal...');
-        
-        // Initialize OneSignal with simpler configuration
+  
+        console.log('🚀 Initializing OneSignal...');
         await OneSignal.init({
           appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
           allowLocalhostAsSecureOrigin: true,
           serviceWorkerPath: '/OneSignalSDKWorker.js',
           serviceWorkerParam: { scope: '/' }
         });
-
-        console.log('OneSignal initialized successfully');
-
-        // Wait a bit for OneSignal to fully initialize
+  
+        console.log('✅ OneSignal initialized');
+  
         await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // Check if notifications are supported
+  
         if ('Notification' in window) {
-          console.log('Browser notifications supported');
-          
-          // Check current permission
           const permission = Notification.permission;
-          console.log('Current notification permission:', permission);
-          
+          console.log('🔔 Notification permission:', permission);
+  
           if (permission === 'granted') {
-            await getAndSavePlayerId();
+            await getAndSaveSubscriptionId();
           } else if (permission === 'default') {
-            // Request permission
-            console.log('Requesting notification permission...');
             const result = await Notification.requestPermission();
-            console.log('Permission request result:', result);
-            
+            console.log('🔔 Permission result:', result);
             if (result === 'granted') {
-              // Wait longer for OneSignal to register
               await new Promise(resolve => setTimeout(resolve, 5000));
-              await getAndSavePlayerId();
+              await getAndSaveSubscriptionId();
             }
           }
         }
-
-        // Set up event listeners
+  
+        // Optional: event listener
         try {
           OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
-            console.log('OneSignal permission changed:', permission);
+            console.log('🔄 Permission changed:', permission);
             if (permission === 'granted') {
               await new Promise(resolve => setTimeout(resolve, 2000));
-              await getAndSavePlayerId();
+              await getAndSaveSubscriptionId();
             } else {
               setNotifEnabled(false);
             }
           });
         } catch (error) {
-          console.log('Could not set up OneSignal event listener');
+          console.log('⚠️ Could not set permissionChange listener');
         }
-
+  
       } catch (error) {
-        console.error('OneSignal initialization error:', error);
+        console.error('❌ OneSignal init error:', error);
       }
     };
-
+  
     initializeOneSignal();
   }, [currentUser?.id]);
-
+  
   // App initialization useEffect
   useEffect(() => {
     const initializeApp = async () => {
@@ -346,18 +333,18 @@ const getAndSavePlayerId = async () => {
         avatar: user.avatar || "/placeholder.svg?height=40&width=40",
         bio: "Hey there! I'm using this chat app.",
       }
-      
+
       setCurrentUser(currentUserData)
       setEditedUser(currentUserData)
 
       // Connect to Socket.IO
       const socket = socketManager.connect()
-      
+
       // Initialize WebRTC manager
       if (socket) {
         const webrtc = new WebRTCManager(socket)
         setWebrtcManager(webrtc)
-        
+
         // Listen for call state changes
         webrtc.onStateChange((state) => {
           setCallState(state)
@@ -403,7 +390,7 @@ const getAndSavePlayerId = async () => {
       localAudioRef.current.srcObject = callState.localStream
       localAudioRef.current.muted = true
       localAudioRef.current.volume = 0
-      
+
       // Delay play to avoid AbortError
       setTimeout(() => {
         if (localAudioRef.current) {
@@ -419,7 +406,7 @@ const getAndSavePlayerId = async () => {
       remoteAudioRef.current.srcObject = callState.remoteStream
       remoteAudioRef.current.muted = false
       remoteAudioRef.current.volume = 1
-      
+
       // Delay play to avoid AbortError
       setTimeout(() => {
         if (remoteAudioRef.current) {
@@ -493,10 +480,10 @@ const getAndSavePlayerId = async () => {
     // Listen for new messages
     socketManager.onNewMessage((message) => {
       console.log('New message received:', message)
-      
+
       // Add message to the current conversation if it matches
-      if (selectedContact && 
-          (message.senderId._id === selectedContact.id || message.receiverId._id === selectedContact.id)) {
+      if (selectedContact &&
+        (message.senderId._id === selectedContact.id || message.receiverId._id === selectedContact.id)) {
         const newMessage: Message = {
           id: message._id,
           senderId: message.senderId._id === currentUser.id ? "me" : message.senderId._id,
@@ -580,14 +567,14 @@ const getAndSavePlayerId = async () => {
   useEffect(() => {
     const checkNotificationStatus = async () => {
       if (!currentUser?.id) return;
-      
+
       try {
         // Ensure OneSignal is loaded
         if (!OneSignal) {
           const module = await import('react-onesignal');
           OneSignal = module.default;
         }
-        
+
         const isSubscribed = await OneSignal.Notifications.isPushSupported();
         setNotifEnabled(isSubscribed);
         console.log('Notification status checked:', isSubscribed);
@@ -612,26 +599,26 @@ const getAndSavePlayerId = async () => {
 
   const enableNotifications = async () => {
     if (!currentUser?.id) return;
-    
+
     try {
       // Ensure OneSignal is loaded
       if (!OneSignal) {
         const module = await import('react-onesignal');
         OneSignal = module.default;
       }
-      
+
       console.log('Requesting notification permission...');
-      
+
       // Request permission using browser API
       const result = await Notification.requestPermission();
       console.log('Permission result:', result);
-      
+
       if (result === 'granted') {
         // Try to trigger OneSignal subscription
         try {
           console.log('Triggering OneSignal subscription...');
           await OneSignal.showSlidedownPrompt();
-          
+
           // Wait for OneSignal to register
           await new Promise(resolve => setTimeout(resolve, 5000));
           await getAndSavePlayerId();
@@ -748,11 +735,11 @@ const getAndSavePlayerId = async () => {
           online: false,
           unread: 0,
         }
-        
+
         setUserContacts(prev => [...prev, newContact])
         setSearchedUsers(prev => prev.filter(u => u._id !== user._id))
         setFriendSearchQuery("")
-        
+
         // Show success feedback
         console.log(`Added ${user.username} to contacts`)
       } else {
@@ -1029,17 +1016,17 @@ const getAndSavePlayerId = async () => {
                           <DialogTitle>Add Friends</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
-                                                      <div className="relative">
-                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                              <Input
-                                placeholder="Search people..."
-                                value={friendSearchQuery}
-                                onChange={(e) => setFriendSearchQuery(e.target.value)}
-                                className="pl-10"
-                              />
-                            </div>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                            <Input
+                              placeholder="Search people..."
+                              value={friendSearchQuery}
+                              onChange={(e) => setFriendSearchQuery(e.target.value)}
+                              className="pl-10"
+                            />
+                          </div>
 
-                                                    {/* Searched Users */}
+                          {/* Searched Users */}
                           {friendSearchQuery.trim() && (
                             <div>
                               <h3 className="text-sm font-medium text-gray-700 mb-2">Search Results</h3>
@@ -1258,7 +1245,7 @@ const getAndSavePlayerId = async () => {
           "bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0 transition-all duration-300",
           isKeyboardVisible ? "fixed top-0 left-0 right-0 z-40 shadow-md" : "relative z-10"
         )}
-        style={isKeyboardVisible ? { width: '100vw' } : {}}>
+          style={isKeyboardVisible ? { width: '100vw' } : {}}>
           <div className="flex items-center space-x-3">
             <Avatar>
               <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
@@ -1283,9 +1270,9 @@ const getAndSavePlayerId = async () => {
           </div>
           <div className="flex items-center space-x-2">
             {/* Voice Call Button */}
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className="p-2 rounded-full hover:bg-gray-100"
               onClick={() => {
                 if (webrtcManager && selectedContact) {
@@ -1310,9 +1297,9 @@ const getAndSavePlayerId = async () => {
             >
               <Video className="h-4 w-4" />
             </Button>
-            
 
-            
+
+
             {/* More Options Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1577,8 +1564,8 @@ const getAndSavePlayerId = async () => {
                 <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center space-x-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="lg"
                   onClick={() => webrtcManager?.rejectCall()}
                   className="bg-red-500 text-white hover:bg-red-600"
@@ -1586,7 +1573,7 @@ const getAndSavePlayerId = async () => {
                   <PhoneOff className="h-5 w-5 mr-2" />
                   Decline
                 </Button>
-                <Button 
+                <Button
                   size="lg"
                   onClick={async () => {
                     if (webrtcManager) {
@@ -1619,8 +1606,8 @@ const getAndSavePlayerId = async () => {
                 <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="lg"
                   onClick={() => webrtcManager?.endCall()}
                   className="bg-red-500 text-white hover:bg-red-600"
