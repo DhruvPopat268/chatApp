@@ -504,14 +504,21 @@ class WebRTCManager {
   }
 
   private playRingtone() {
-    // Skip ringtone for now to prevent call cutting
-    console.log('Ringtone disabled to prevent call issues')
+    if (!this.ringtone) {
+      this.ringtone = new Audio('/ringtone.mp3');
+      this.ringtone.loop = true;
+      this.ringtone.volume = 1.0;
+    }
+    this.ringtone.currentTime = 0;
+    this.ringtone.play().catch((e) => {
+      console.log('Ringtone play failed:', e);
+    });
   }
 
   private stopRingtone() {
     if (this.ringtone) {
-      this.ringtone.pause()
-      this.ringtone.currentTime = 0
+      this.ringtone.pause();
+      this.ringtone.currentTime = 0;
     }
   }
 
