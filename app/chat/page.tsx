@@ -193,161 +193,21 @@ export default function ChatPage() {
   }, [router]);
 
   const getAndSavePlayerId = async () => {
-    console.log('Attempting to get playerId...');
-    
-    // Method 1: Try OneSignal.User.onesignalId (property, not method)
+    console.log('Attempting to get playerId (Subscription ID)...');
+    // Use the correct property: OneSignal.User.onesignalId
     try {
-      console.log('Trying OneSignal.User.onesignalId...');
-      const playerId = OneSignal.User.onesignalId;
-      console.log('Method 1 result:', playerId);
+      const playerId = OneSignal.User && OneSignal.User.onesignalId;
+      console.log('Subscription ID (playerId) found:', playerId);
       if (playerId) {
-        console.log('Success! Got playerId from method 1:', playerId);
         await savePlayerId(playerId);
         setNotifEnabled(true);
         return;
       }
     } catch (error) {
-      console.log('Method 1 failed:', error);
+      console.log('Failed to get Subscription ID (playerId):', error);
     }
-
-    // Method 2: Try OneSignal.User.externalId
-    try {
-      console.log('Trying OneSignal.User.externalId...');
-      const playerId = OneSignal.User.externalId;
-      console.log('Method 2 result:', playerId);
-      if (playerId) {
-        console.log('Success! Got playerId from method 2:', playerId);
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
-      }
-    } catch (error) {
-      console.log('Method 2 failed:', error);
-    }
-
-    // Method 3: Try OneSignal.Notifications.permission
-    try {
-      console.log('Trying OneSignal.Notifications.permission...');
-      const permission = await OneSignal.Notifications.permission;
-      console.log('Notification permission:', permission);
-      
-      if (permission === 'granted') {
-        // Try to get playerId again after confirming permission
-        try {
-          const playerId = OneSignal.User.onesignalId;
-          if (playerId) {
-            console.log('Success! Got playerId after checking permission:', playerId);
-            await savePlayerId(playerId);
-            setNotifEnabled(true);
-            return;
-          }
-        } catch (error) {
-          console.log('Failed to get playerId after checking permission');
-        }
-      }
-    } catch (error) {
-      console.log('Method 3 failed:', error);
-    }
-
-    // Method 4: Try to get from OneSignal object properties
-    try {
-      console.log('Trying to access OneSignal object properties...');
-      console.log('OneSignal object keys:', Object.keys(OneSignal));
-      
-      // Check if OneSignal has a userId property
-      if (OneSignal.userId) {
-        console.log('Success! Got playerId from OneSignal.userId:', OneSignal.userId);
-        await savePlayerId(OneSignal.userId);
-        setNotifEnabled(true);
-        return;
-      }
-      
-      // Check if OneSignal has a playerId property
-      if (OneSignal.playerId) {
-        console.log('Success! Got playerId from OneSignal.playerId:', OneSignal.playerId);
-        await savePlayerId(OneSignal.playerId);
-        setNotifEnabled(true);
-        return;
-      }
-
-      // Check if OneSignal.User has any properties
-      console.log('OneSignal.User object:', OneSignal.User);
-      if (OneSignal.User && typeof OneSignal.User === 'object') {
-        console.log('OneSignal.User keys:', Object.keys(OneSignal.User));
-        
-        // Try to access onesignalId directly
-        if (OneSignal.User.onesignalId) {
-          console.log('Success! Got playerId from OneSignal.User.onesignalId:', OneSignal.User.onesignalId);
-          await savePlayerId(OneSignal.User.onesignalId);
-          setNotifEnabled(true);
-          return;
-        }
-      }
-    } catch (error) {
-      console.log('Method 4 failed:', error);
-    }
-
-    // Method 5: Try to get from localStorage
-    try {
-      console.log('Trying to get from localStorage...');
-      const storedPlayerId = localStorage.getItem('OneSignal_playerId');
-      if (storedPlayerId) {
-        console.log('Success! Got playerId from localStorage:', storedPlayerId);
-        await savePlayerId(storedPlayerId);
-        setNotifEnabled(true);
-        return;
-      }
-    } catch (error) {
-      console.log('Method 5 failed:', error);
-    }
-
-    // Method 6: Try to get from OneSignal localStorage data
-    try {
-      console.log('Trying to get from OneSignal localStorage data...');
-      const oneSignalData = localStorage.getItem('OneSignal');
-      if (oneSignalData) {
-        try {
-          const parsed = JSON.parse(oneSignalData);
-          console.log('OneSignal localStorage data:', parsed);
-          if (parsed.userId) {
-            console.log('Success! Got playerId from OneSignal localStorage:', parsed.userId);
-            await savePlayerId(parsed.userId);
-            setNotifEnabled(true);
-            return;
-          }
-        } catch (parseError) {
-          console.log('Failed to parse OneSignal localStorage data');
-        }
-      }
-    } catch (error) {
-      console.log('Method 6 failed:', error);
-    }
-
-    // Method 7: Try to get from OneSignal dashboard data directly
-    try {
-      console.log('Trying to get from OneSignal dashboard data...');
-      // Based on your OneSignal dashboard, we know the ID exists
-      // Let's try to get it from the OneSignal object directly
-      if (OneSignal.User && OneSignal.User.onesignalId) {
-        const playerId = OneSignal.User.onesignalId;
-        console.log('Success! Got playerId from OneSignal.User.onesignalId (direct):', playerId);
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
-      }
-      
-      // If that doesn't work, try to get it from the OneSignal object itself
-      if (OneSignal.onesignalId) {
-        const playerId = OneSignal.onesignalId;
-        console.log('Success! Got playerId from OneSignal.onesignalId:', playerId);
-        await savePlayerId(playerId);
-        setNotifEnabled(true);
-        return;
-      }
-    } catch (error) {
-      console.log('Method 7 failed:', error);
-    }
-
+    // Fallbacks (if needed) ...
+    // (You can keep other fallback logic if you want, but the above is the correct way)
     console.log('All methods failed to get playerId');
     setNotifEnabled(false);
   };

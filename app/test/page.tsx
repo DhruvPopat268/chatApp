@@ -39,7 +39,7 @@ export default function TestPage() {
         const module = await import('react-onesignal');
         OneSignal = module.default;
       }
-      
+
       console.log('Initializing OneSignal...');
       await OneSignal.init({
         appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
@@ -67,18 +67,19 @@ export default function TestPage() {
         serviceWorkerPath: '/OneSignalSDKWorker.js',
         serviceWorkerParam: { scope: '/' }
       });
-      
+
       const isSupported = await OneSignal.Notifications.isPushSupported();
       setIsSubscribed(isSupported);
-      
+
       if (isSupported) {
         const permission = await OneSignal.Notifications.permission;
         if (permission === 'granted') {
-          const id = await OneSignal.User.getOneSignalId();
+          const id = await OneSignal.getUserId();
+
           setPlayerId(id);
         }
       }
-      
+
       console.log('OneSignal initialized, supported:', isSupported);
     } catch (error) {
       console.error('OneSignal initialization error:', error);
@@ -95,16 +96,16 @@ export default function TestPage() {
         const module = await import('react-onesignal');
         OneSignal = module.default;
       }
-      
+
       console.log('Requesting notification permission...');
       await OneSignal.Notifications.requestPermission();
-      
+
       // Check status after a delay
       setTimeout(async () => {
         const permission = await OneSignal.Notifications.permission;
         const subscribed = permission === 'granted';
         setIsSubscribed(subscribed);
-        
+
         if (subscribed) {
           const id = await OneSignal.User.getOneSignalId();
           setPlayerId(id);
@@ -120,7 +121,7 @@ export default function TestPage() {
 
   const savePlayerId = async () => {
     if (!currentUser?.id || !playerId) return;
-    
+
     setLoading(true);
     try {
       const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
@@ -128,7 +129,7 @@ export default function TestPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId, userId: currentUser.id })
       });
-      
+
       if (response.ok) {
         console.log('PlayerId saved successfully');
         await checkNotificationStatus();
@@ -144,7 +145,7 @@ export default function TestPage() {
 
   const checkNotificationStatus = async () => {
     if (!currentUser?.id) return;
-    
+
     setLoading(true);
     try {
       const response = await fetch(`${config.getBackendUrl()}/api/debug/notifications/${currentUser.id}`);
@@ -178,13 +179,13 @@ export default function TestPage() {
 
   const testNotification = async () => {
     if (!currentUser?.id) return;
-    
+
     setLoading(true);
     try {
       const response = await fetch(`${config.getBackendUrl()}/api/debug/test-notification/${currentUser.id}`, {
         method: 'POST'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('Test notification result:', data);
@@ -252,7 +253,7 @@ export default function TestPage() {
                 Request Permission
               </Button>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex items-center space-x-2">
                 <span>Subscription Status:</span>
@@ -270,7 +271,7 @@ export default function TestPage() {
                   </Badge>
                 )}
               </div>
-              
+
               <div className="flex items-center space-x-2">
                 <span>Player ID:</span>
                 {playerId ? (
@@ -306,7 +307,7 @@ export default function TestPage() {
                 Check Config
               </Button>
             </div>
-            
+
             {notificationStatus && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="font-semibold mb-2">User Notification Status:</h3>
@@ -315,7 +316,7 @@ export default function TestPage() {
                 </pre>
               </div>
             )}
-            
+
             {debugInfo && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="font-semibold mb-2">All Users with Player IDs:</h3>
