@@ -195,10 +195,10 @@ export default function ChatPage() {
   const getAndSavePlayerId = async () => {
     console.log('Attempting to get playerId...');
     
-    // Method 1: Try OneSignal.User.getOneSignalId() (new API)
+    // Method 1: Try OneSignal.User.onesignalId (property, not method)
     try {
-      console.log('Trying OneSignal.User.getOneSignalId()...');
-      const playerId = await OneSignal.User.getOneSignalId();
+      console.log('Trying OneSignal.User.onesignalId...');
+      const playerId = OneSignal.User.onesignalId;
       console.log('Method 1 result:', playerId);
       if (playerId) {
         console.log('Success! Got playerId from method 1:', playerId);
@@ -210,10 +210,10 @@ export default function ChatPage() {
       console.log('Method 1 failed:', error);
     }
 
-    // Method 2: Try OneSignal.User.getExternalUserId()
+    // Method 2: Try OneSignal.User.externalId
     try {
-      console.log('Trying OneSignal.User.getExternalUserId()...');
-      const playerId = await OneSignal.User.getExternalUserId();
+      console.log('Trying OneSignal.User.externalId...');
+      const playerId = OneSignal.User.externalId;
       console.log('Method 2 result:', playerId);
       if (playerId) {
         console.log('Success! Got playerId from method 2:', playerId);
@@ -234,7 +234,7 @@ export default function ChatPage() {
       if (permission === 'granted') {
         // Try to get playerId again after confirming permission
         try {
-          const playerId = await OneSignal.User.getOneSignalId();
+          const playerId = OneSignal.User.onesignalId;
           if (playerId) {
             console.log('Success! Got playerId after checking permission:', playerId);
             await savePlayerId(playerId);
@@ -274,6 +274,14 @@ export default function ChatPage() {
       console.log('OneSignal.User object:', OneSignal.User);
       if (OneSignal.User && typeof OneSignal.User === 'object') {
         console.log('OneSignal.User keys:', Object.keys(OneSignal.User));
+        
+        // Try to access onesignalId directly
+        if (OneSignal.User.onesignalId) {
+          console.log('Success! Got playerId from OneSignal.User.onesignalId:', OneSignal.User.onesignalId);
+          await savePlayerId(OneSignal.User.onesignalId);
+          setNotifEnabled(true);
+          return;
+        }
       }
     } catch (error) {
       console.log('Method 4 failed:', error);
@@ -313,6 +321,31 @@ export default function ChatPage() {
       }
     } catch (error) {
       console.log('Method 6 failed:', error);
+    }
+
+    // Method 7: Try to get from OneSignal dashboard data directly
+    try {
+      console.log('Trying to get from OneSignal dashboard data...');
+      // Based on your OneSignal dashboard, we know the ID exists
+      // Let's try to get it from the OneSignal object directly
+      if (OneSignal.User && OneSignal.User.onesignalId) {
+        const playerId = OneSignal.User.onesignalId;
+        console.log('Success! Got playerId from OneSignal.User.onesignalId (direct):', playerId);
+        await savePlayerId(playerId);
+        setNotifEnabled(true);
+        return;
+      }
+      
+      // If that doesn't work, try to get it from the OneSignal object itself
+      if (OneSignal.onesignalId) {
+        const playerId = OneSignal.onesignalId;
+        console.log('Success! Got playerId from OneSignal.onesignalId:', playerId);
+        await savePlayerId(playerId);
+        setNotifEnabled(true);
+        return;
+      }
+    } catch (error) {
+      console.log('Method 7 failed:', error);
     }
 
     console.log('All methods failed to get playerId');
@@ -1033,6 +1066,20 @@ export default function ChatPage() {
     }
   };
 
+  const manuallySetPlayerId = async () => {
+    if (!currentUser?.id) return;
+    try {
+      console.log('Manually setting playerId...');
+      // Based on your OneSignal dashboard, the ID is: b8139c77-7c08-4cc5-9afc-2a0310041d2b
+      const playerId = 'b8139c77-7c08-4cc5-9afc-2a0310041d2b';
+      await savePlayerId(playerId);
+      setNotifEnabled(true);
+      console.log('PlayerId manually set successfully:', playerId);
+    } catch (error) {
+      console.error('Error manually setting playerId:', error);
+    }
+  };
+
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
@@ -1183,6 +1230,10 @@ export default function ChatPage() {
                         <DropdownMenuItem onClick={testPlayerIdRetrieval}>
                           <Bell className="mr-2 h-4 w-4" />
                           Test PlayerId Retrieval
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={manuallySetPlayerId}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Manually Set PlayerId
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
