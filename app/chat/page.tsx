@@ -192,25 +192,48 @@ export default function ChatPage() {
     }
   }, [router]);
 
+// Helper to get Subscription ID from IndexedDB
+function getSubscriptionIdFromIndexedDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('ONE_SIGNAL_SDK_DB');
+    request.onerror = () => reject('Failed to open IndexedDB');
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction(['subscriptions'], 'readonly');
+      const store = transaction.objectStore('subscriptions');
+      const getAllRequest = store.getAll();
+      getAllRequest.onsuccess = () => {
+        const subs = getAllRequest.result;
+        if (subs && subs.length > 0 && subs[0].id) {
+          resolve(subs[0].id); // Subscription ID (Player ID)
+        } else {
+          reject('No subscription ID found');
+        }
+      };
+      getAllRequest.onerror = () => reject('Failed to read subscriptions');
+    };
+  });
+}
+
 const getAndSavePlayerId = async () => {
-  console.log('Attempting to get Subscription ID (playerId)...');
-  try {
-    // this is subscription id
-    const playerId = await OneSignal.getUserId();
-    console.log('Subscription ID (playerId) found:', subscriptionId);
-    if (playerId) {
-      await savePlayerId(playerId);
-      setNotifEnabled(true);
-      return;
+  let playerId = OneSignal?.User?.onesignalId;
+  if (!playerId) {
+    // Fallback to IndexedDB
+    try {
+      playerId = await getSubscriptionIdFromIndexedDB();
+      console.log('Got Subscription ID from IndexedDB:', playerId);
+    } catch (e) {
+      console.error('Failed to get Subscription ID from IndexedDB:', e);
     }
-  } catch (error) {
-    console.log('Failed to get Subscription ID (playerId):', error);
   }
-
-  console.log('All methods failed to get playerId');
+  if (playerId) {
+    await savePlayerId(playerId);
+    setNotifEnabled(true);
+    return;
+  }
   setNotifEnabled(false);
+  console.log('All methods failed to get playerId');
 };
-
 
   const savePlayerId = async (playerId: string) => {
     if (!currentUser?.id) return;
