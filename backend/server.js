@@ -47,6 +47,53 @@ app.post('/api/save-onesignal-id', async (req, res) => {
   res.json({ success: true });
 });
 
+// Debug endpoint to check user notification status
+app.get('/api/debug/notifications/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const isOnline = connectedUsers.has(userId);
+    const status = userStatus.get(userId);
+    
+    res.json({
+      userId,
+      username: user.username,
+      oneSignalPlayerId: user.oneSignalPlayerId,
+      isOnline,
+      lastSeen: status?.lastSeen,
+      hasPlayerId: !!user.oneSignalPlayerId,
+      envVarsConfigured: {
+        ONESIGNAL_APP_ID: !!process.env.ONESIGNAL_APP_ID,
+        ONESIGNAL_REST_API_KEY: !!process.env.ONESIGNAL_REST_API_KEY
+      }
+    });
+  } catch (error) {
+    console.error('Debug endpoint error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Debug endpoint to check all users with OneSignal playerIds
+app.get('/api/debug/onesignal-users', async (req, res) => {
+  try {
+    const users = await User.find({ oneSignalPlayerId: { $exists: true, $ne: null } })
+      .select('username oneSignalPlayerId createdAt');
+    
+    res.json({
+      totalUsersWithPlayerId: users.length,
+      users: users
+    });
+  } catch (error) {
+    console.error('Debug OneSignal users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Socket.IO connection handling
 const connectedUsers = new Map(); // userId -> socketId
 // Track last seen for users
@@ -103,26 +150,39 @@ io.on('connection', (socket) => {
         console.log('User', receiverId, 'is not connected. Attempting to send push notification via OneSignal.');
         const user = await User.findById(receiverId);
         const playerId = user?.oneSignalPlayerId;
+        
         if (playerId) {
           try {
-            await axios.post('https://onesignal.com/api/v1/notifications', {
+            // Check if OneSignal environment variables are set
+            if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) {
+              console.error('OneSignal environment variables not configured');
+              return;
+            }
+            
+            const notificationResponse = await axios.post('https://onesignal.com/api/v1/notifications', {
               app_id: process.env.ONESIGNAL_APP_ID,
               include_player_ids: [playerId],
               headings: { en: populatedMessage.senderId.username + ' sent a message' },
               contents: { en: content },
               url: '/chat',
+              data: {
+                messageId: message._id.toString(),
+                senderId: socket.userId,
+                type: type || 'text'
+              }
             }, {
               headers: {
                 'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
                 'Content-Type': 'application/json'
               }
             });
-            console.log('OneSignal push notification sent to user', receiverId);
+            
+            console.log('OneSignal push notification sent successfully to user', receiverId, 'Response:', notificationResponse.data);
           } catch (err) {
-            console.error('OneSignal push notification error for user', receiverId, ':', err);
+            console.error('OneSignal push notification error for user', receiverId, ':', err.response?.data || err.message);
           }
         } else {
-          console.log('No OneSignal playerId found for user', receiverId);
+          console.log('No OneSignal playerId found for user', receiverId, '. User may not have subscribed to notifications.');
         }
       }
 

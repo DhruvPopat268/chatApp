@@ -34,6 +34,7 @@ import {
   Save,
   X,
   Loader2,
+  Bell,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -120,34 +121,8 @@ const contacts: Contact[] = [
 ]
 
 const initialMessages: Message[] = [
-  {
-    id: "1",
-    senderId: "1",
-    content: "Hey there! How are you doing today?",
-    timestamp: "10:30 AM",
-    type: "text",
-  },
-  {
-    id: "2",
-    senderId: "me",
-    content: "I'm doing great! Just working on some projects.",
-    timestamp: "10:32 AM",
-    type: "text",
-  },
-  {
-    id: "3",
-    senderId: "1",
-    content: "That sounds awesome! I sent you some files earlier.",
-    timestamp: "10:35 AM",
-    type: "text",
-  },
-  {
-    id: "4",
-    senderId: "1",
-    content: "",
-    timestamp: "10:36 AM",
-    type: "image",
-  },
+
+  
 ]
 
 export default function ChatPage() {
@@ -213,59 +188,104 @@ export default function ChatPage() {
   // Push notification setup useEffect
   useEffect(() => {
     if (!currentUser?.id) return;
-    OneSignal.init({
-      appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
-      notifyButton: {
-        enable: true,
-        prenotify: true,
-        showCredit: false,
-        text: {
-          'tip.state.unsubscribed': 'Subscribe to notifications',
-          'tip.state.subscribed': 'You are subscribed to notifications',
-          'tip.state.blocked': 'You have blocked notifications',
-          'message.prenotify': 'Click to subscribe to notifications',
-          'message.action.subscribed': "Thanks for subscribing!",
-          'message.action.resubscribed': "You're subscribed to notifications",
-          'message.action.unsubscribed': "You won't receive notifications again",
-          'message.action.subscribing': 'Subscribing...',
-          'dialog.main.title': 'Manage Site Notifications',
-          'dialog.main.button.subscribe': 'SUBSCRIBE',
-          'dialog.main.button.unsubscribe': 'UNSUBSCRIBE',
-          'dialog.blocked.title': 'Unblock Notifications',
-          'dialog.blocked.message': 'Follow instructions to allow notifications',
-        }
-      },
-      allowLocalhostAsSecureOrigin: true,
-    });
     
-    const handleSubscriptionChange = async (isSubscribed: boolean) => {
-      if (isSubscribed) {
-        const playerId = await (OneSignal as any).getUserId();
-        if (playerId) {
-          await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ playerId, userId: currentUser.id })
-          });
+    const initializeOneSignal = async () => {
+      try {
+        // Initialize OneSignal
+        await OneSignal.init({
+          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
+          notifyButton: {
+            enable: true,
+            prenotify: true,
+            showCredit: false,
+            text: {
+              'tip.state.unsubscribed': 'Subscribe to notifications',
+              'tip.state.subscribed': 'You are subscribed to notifications',
+              'tip.state.blocked': 'You have blocked notifications',
+              'message.prenotify': 'Click to subscribe to notifications',
+              'message.action.subscribed': "Thanks for subscribing!",
+              'message.action.resubscribed': "You're subscribed to notifications",
+              'message.action.unsubscribed': "You won't receive notifications again",
+              'message.action.subscribing': 'Subscribing...',
+              'dialog.main.title': 'Manage Site Notifications',
+              'dialog.main.button.subscribe': 'SUBSCRIBE',
+              'dialog.main.button.unsubscribe': 'UNSUBSCRIBE',
+              'dialog.blocked.title': 'Unblock Notifications',
+              'dialog.blocked.message': 'Follow instructions to allow notifications',
+            }
+          },
+          allowLocalhostAsSecureOrigin: true,
+        });
+
+        // Check if notifications are already enabled
+        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        console.log('OneSignal subscription status:', isSubscribed);
+
+        if (isSubscribed) {
+          // User is already subscribed, get playerId and save it
+          const playerId = await (OneSignal as any).getUserId();
+          if (playerId) {
+            console.log('Found existing playerId:', playerId);
+            await savePlayerId(playerId);
+          }
+        } else {
+          // User is not subscribed, show notification prompt
+          console.log('User not subscribed, showing notification prompt...');
+          await (OneSignal as any).showSlidedownPrompt();
         }
+
+        // Set up subscription change listener
+        const handleSubscriptionChange = async (isSubscribed: boolean) => {
+          console.log('Subscription changed:', isSubscribed);
+          if (isSubscribed) {
+            const playerId = await (OneSignal as any).getUserId();
+            if (playerId) {
+              console.log('New playerId received:', playerId);
+              await savePlayerId(playerId);
+            }
+          }
+        };
+
+        // Use the new OneSignal event listener if available
+        if ((OneSignal as any).Notifications?.addEventListener) {
+          (OneSignal as any).Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
+        } else {
+          // Fallback: poll for subscription status changes
+          let lastSubscribed = isSubscribed;
+          const poll = setInterval(async () => {
+            const currentSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+            if (currentSubscribed !== lastSubscribed) {
+              lastSubscribed = currentSubscribed;
+              handleSubscriptionChange(currentSubscribed);
+            }
+          }, 2000);
+          
+          return () => clearInterval(poll);
+        }
+      } catch (error) {
+        console.error('OneSignal initialization error:', error);
       }
     };
-    
-    if ((OneSignal as any).Notifications?.addEventListener) {
-      (OneSignal as any).Notifications.addEventListener('subscriptionChange', handleSubscriptionChange);
-    } else {
-      let lastSubscribed = false;
-      const poll = setInterval(async () => {
-        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
-        if (isSubscribed && !lastSubscribed) {
-          lastSubscribed = true;
-          handleSubscriptionChange(true);
-        } else if (!isSubscribed && lastSubscribed) {
-          lastSubscribed = false;
+
+    const savePlayerId = async (playerId: string) => {
+      try {
+        const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId, userId: currentUser.id })
+        });
+        
+        if (response.ok) {
+          console.log('PlayerId saved successfully');
+        } else {
+          console.error('Failed to save playerId');
         }
-      }, 2000);
-      return () => clearInterval(poll);
-    }
+      } catch (error) {
+        console.error('Error saving playerId:', error);
+      }
+    };
+
+    initializeOneSignal();
   }, [currentUser?.id]);
 
   // App initialization useEffect
@@ -514,6 +534,25 @@ export default function ChatPage() {
       .finally(() => setIsSearching(false));
   }, [friendSearchQuery, currentUser, userContacts]);
 
+  // Check notification status
+  useEffect(() => {
+    const checkNotificationStatus = async () => {
+      if (!currentUser?.id) return;
+      
+      try {
+        const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+        setNotifEnabled(isSubscribed);
+        console.log('Notification status checked:', isSubscribed);
+      } catch (error) {
+        console.error('Error checking notification status:', error);
+      }
+    };
+
+    // Check status after a delay to ensure OneSignal is initialized
+    const timer = setTimeout(checkNotificationStatus, 2000);
+    return () => clearTimeout(timer);
+  }, [currentUser?.id]);
+
   // All other functions and logic below
   const handleTyping = () => {
     if (!selectedContact || !currentUser) return;
@@ -526,30 +565,37 @@ export default function ChatPage() {
   const enableNotifications = async () => {
     if (!currentUser) return;
     try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
+      console.log('Requesting OneSignal notification permission...');
+      
+      // Show OneSignal notification prompt
+      await (OneSignal as any).showSlidedownPrompt();
+      
+      // Check if permission was granted
+      const isSubscribed = await (OneSignal as any).isPushNotificationsEnabled();
+      if (isSubscribed) {
         setNotifEnabled(true);
-        try {
-          const registration = await navigator.serviceWorker.ready;
-          const subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-          });
-          await fetch(`${config.getBackendUrl()}/api/save-push-subscription`, {
+        const playerId = await (OneSignal as any).getUserId();
+        if (playerId) {
+          console.log('Notification enabled, playerId:', playerId);
+          // Save playerId to backend
+          const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subscription, userId: currentUser.id })
+            body: JSON.stringify({ playerId, userId: currentUser.id })
           });
-        } catch (err) {
-          if (err instanceof DOMException) {
-            console.error('Push registration failed:', err.name, err.message);
+          
+          if (response.ok) {
+            console.log('PlayerId saved successfully');
           } else {
-            console.error('Push registration failed', err);
+            console.error('Failed to save playerId');
           }
         }
+      } else {
+        console.log('Notification permission not granted');
+        setNotifEnabled(false);
       }
     } catch (err) {
-      console.error('Notification permission error', err);
+      console.error('Error enabling notifications:', err);
     }
   };
 
@@ -959,6 +1005,10 @@ export default function ChatPage() {
                         <DropdownMenuItem onClick={() => setIsProfileOpen(true)}>
                           <User className="h-4 w-4 mr-2" />
                           My Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={enableNotifications}>
+                          <Bell className="h-4 w-4 mr-2" />
+                          {notifEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
@@ -1605,8 +1655,6 @@ export default function ChatPage() {
         playsInline
         style={{ display: 'none' }}
       />
-      
-      
 
     </div>
   )
