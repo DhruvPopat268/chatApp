@@ -254,7 +254,6 @@ export default function ChatPage() {
     }
   };
 
-
   // Push notification setup useEffect
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -621,6 +620,7 @@ export default function ChatPage() {
 
           // Wait for OneSignal to register
           await new Promise(resolve => setTimeout(resolve, 5000));
+          await getAndSaveSubscriptionId();
           await getAndSavePlayerId();
         } catch (error) {
           console.log('OneSignal subscription failed, trying direct approach...');
