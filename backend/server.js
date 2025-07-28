@@ -53,7 +53,7 @@ async function validateOneSignalPlayerId(playerId) {
         'Content-Type': 'application/json'
       }
     });
-
+    console.log("OneSignal playerId validation response:", response.data);
     // If we get a successful response, the playerId is valid
     return response.status === 200 && response.data;
   } catch (error) {
