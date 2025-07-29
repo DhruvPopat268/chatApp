@@ -316,7 +316,7 @@ export default function ChatPage() {
 
         // Handle notification clicks
         try {
-          OneSignal.Notifications.addEventListener('click', (event) => {
+          OneSignal.Notifications.addEventListener('click', (event: any) => {
             console.log('🔔 Notification clicked:', event);
             
             // Handle call notifications
@@ -665,20 +665,13 @@ export default function ChatPage() {
   const handleInputFocus = () => {
     setIsKeyboardVisible(true);
     setTimeout(() => {
-      if (messageInputRef.current) {
-        messageInputRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-          inline: "nearest",
-        })
-      }
-      // Scroll to bottom when keyboard appears
       scrollToBottom();
-    }, 300) // Delay to allow keyboard animation
+    }, 100) // Reduced delay for faster response
   }
 
   const handleInputBlur = () => {
-    setIsKeyboardVisible(false);
+    // Don't immediately set keyboard as hidden on blur
+    // Let the viewport change handler determine this
   }
 
   // Handle viewport changes for mobile keyboard
@@ -686,8 +679,15 @@ export default function ChatPage() {
     const handleViewportChange = () => {
       if (typeof window !== 'undefined' && window.visualViewport) {
         const viewport = window.visualViewport;
-        const isKeyboardOpen = viewport.height < window.innerHeight * 0.8;
+        const isKeyboardOpen = viewport.height < window.innerHeight * 0.85; // More sensitive detection
         setIsKeyboardVisible(isKeyboardOpen);
+        
+        // If keyboard is open, scroll to bottom immediately
+        if (isKeyboardOpen) {
+          setTimeout(() => {
+            scrollToBottom();
+          }, 50);
+        }
       }
     };
 
@@ -878,19 +878,19 @@ export default function ChatPage() {
   };
 
   // Handle scroll events to show/hide scroll to bottom button
-  const handleScroll = (event: any) => {
-    const scrollElement = event.target;
-    const scrollTop = scrollElement.scrollTop;
-    const scrollHeight = scrollElement.scrollHeight;
-    const clientHeight = scrollElement.clientHeight;
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLDivElement;
+    const { scrollTop, scrollHeight, clientHeight } = target;
     
-    // Show scroll to bottom button if user has scrolled up more than 200px from bottom
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
-    setIsAtBottom(isNearBottom);
-    setShowScrollToBottom(!isNearBottom);
+    // Check if user is at the bottom
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
+    setIsAtBottom(isAtBottom);
     
-    // Reset new message count when user scrolls to bottom
-    if (isNearBottom) {
+    // Show scroll to bottom button if not at bottom
+    setShowScrollToBottom(!isAtBottom);
+    
+    // Reset new message count if user scrolls to bottom
+    if (isAtBottom) {
       setNewMessageCount(0);
     }
   };
@@ -1332,17 +1332,16 @@ export default function ChatPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div
+      <div 
         ref={chatContainerRef}
         className={cn(
-          "flex-1 flex flex-col relative",
-          isSidebarOpen && "md:ml-0", // Add margin on desktop when sidebar is open
-          isSidebarOpen ? "z-0" : "z-10" // Conditional z-index based on sidebar state
+          "flex-1 flex flex-col bg-white",
+          isSidebarOpen ? "z-0" : "z-10"
         )}
         style={{
-          height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
-            ? `${window.visualViewport?.height || window.innerHeight}px`
-            : "100vh",
+          height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport 
+            ? `${window.visualViewport?.height || window.innerHeight}px` 
+            : "100vh"
         }}
       >
         {/* Sticky Header - Always visible with conditional z-index */}
@@ -1450,7 +1449,7 @@ export default function ChatPage() {
         <div className="flex-1 overflow-hidden relative">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="h-full p-4 pb-32" // Increased bottom padding to account for sticky footer
+            className="h-full p-4 pb-20" // Reduced bottom padding to prevent overlap
             onScroll={handleScroll}
           >
             <div className="space-y-4 pb-4">
@@ -1534,7 +1533,7 @@ export default function ChatPage() {
                 scrollToBottom();
                 setNewMessageCount(0);
               }}
-              className="absolute bottom-24 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
+              className="absolute bottom-20 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
               size="sm"
             >
               <ChevronDown className="h-5 w-5" />
@@ -1551,11 +1550,12 @@ export default function ChatPage() {
         <div
           className={cn(
             "sticky bottom-0 bg-white border-t border-gray-200 p-4 flex-shrink-0 shadow-lg backdrop-blur-sm bg-white/95",
-            isKeyboardVisible && "pb-safe-area-inset-bottom",
             isSidebarOpen ? "z-0" : "z-50" // Conditional z-index but always accessible
           )}
           style={{
-            paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
+            // Ensure the input sits directly on top of the keyboard
+            bottom: isKeyboardVisible ? '0' : '0',
+            paddingBottom: isKeyboardVisible ? '8px' : '16px',
           }}
         >
           {/* Subtle top border indicator */}
