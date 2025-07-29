@@ -697,31 +697,28 @@ export default function ChatPage() {
       const isKeyboardOpen = keyboardHeight > 150;
       setIsKeyboardVisible(isKeyboardOpen);
       
-      // Add/remove body class to prevent scrolling when keyboard is open
-      if (isKeyboardOpen) {
-        document.body.classList.add('keyboard-open');
-        // Ensure footer is positioned above keyboard
-        const footer = document.querySelector('.fixed-footer') as HTMLElement;
-        if (footer) {
+      // Update main container height to fit within viewport
+      const mainContainer = document.getElementById('chat-main-container');
+      if (mainContainer) {
+        mainContainer.style.height = `${viewportHeight}px`;
+        mainContainer.style.overflow = 'hidden'; // Prevent page scroll
+      }
+      
+      // Ensure footer is positioned above keyboard
+      const footer = document.querySelector('.fixed-footer') as HTMLElement;
+      if (footer) {
+        if (isKeyboardOpen) {
           footer.style.bottom = `${keyboardHeight}px`;
-        }
-      } else {
-        document.body.classList.remove('keyboard-open');
-        // Reset footer position when keyboard closes
-        const footer = document.querySelector('.fixed-footer') as HTMLElement;
-        if (footer) {
+        } else {
           footer.style.bottom = '0px';
         }
       }
       
-      // Update main container height to account for keyboard
-      const mainContainer = document.getElementById('chat-main-container');
-      if (mainContainer) {
-        if (isKeyboardOpen) {
-          mainContainer.style.height = `${viewportHeight}px`;
-        } else {
-          mainContainer.style.height = '100vh';
-        }
+      // Add/remove body class to prevent scrolling when keyboard is open
+      if (isKeyboardOpen) {
+        document.body.classList.add('keyboard-open');
+      } else {
+        document.body.classList.remove('keyboard-open');
       }
     }
   }, []);
@@ -746,6 +743,19 @@ export default function ChatPage() {
       };
     }
   }, [handleViewportChange]);
+
+  // Cleanup effect for keyboard handling
+  useEffect(() => {
+    return () => {
+      // Cleanup when component unmounts
+      document.body.classList.remove('keyboard-open');
+      const mainContainer = document.getElementById('chat-main-container');
+      if (mainContainer) {
+        mainContainer.style.height = '100vh';
+        mainContainer.style.overflow = 'hidden';
+      }
+    };
+  }, []);
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedContact || !currentUser) return;
@@ -1393,101 +1403,65 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
+      {/* Main Chat Container - Fixed height, no page scroll */}
       <div 
-        ref={chatContainerRef}
         id="chat-main-container"
-        className={cn(
-          "flex-1 flex flex-col bg-white h-screen",
-          isSidebarOpen ? "z-0" : "z-10"
-        )}
+        className="flex-1 flex flex-col bg-white h-screen overflow-hidden"
+        style={{
+          height: '100vh',
+          overflow: 'hidden'
+        }}
       >
-        {/* Sticky Header - Always visible at top */}
-        <div className={cn(
-          "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95 flex-shrink-0",
-          isSidebarOpen ? "z-0" : "z-40"
-        )}>
-          {/* Minimal header - essential info only */}
-          <div className="px-2 py-1 flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleSidebar}
-              className="p-1 rounded-full hover:bg-gray-100"
-            >
-              <ChevronRight className="h-3 w-3" />
-            </Button>
-            
-            {/* Contact info - Only show when contact is selected */}
-            {selectedContact && (
-              <div className="flex items-center space-x-1 flex-1 justify-center">
-                <div className="text-center">
-                  <h3 className="font-medium text-xs">{selectedContact?.name || "No Contact"}</h3>
-                  <p className="text-xs text-gray-500">
-                    {isTyping
-                      ? "Typing..."
-                      : contactStatus.online
-                        ? "Online"
-                        : contactStatus.lastSeen
-                          ? `Last seen ${Math.round((Date.now() - contactStatus.lastSeen) / 60000)} min ago`
-                          : ""}
-                  </p>
-                </div>
+        {/* Sticky Header - Always at top */}
+        <div className="flex-shrink-0 px-2 py-1 bg-white border-b border-gray-200 shadow-sm z-40">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleSidebar}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Toggle sidebar"
+              >
+                <ChevronRight className="h-3 w-3" />
+              </Button>
+              <div className="flex flex-col">
+                <h2 className="font-medium text-xs text-gray-900">{selectedContact?.name}</h2>
+                <p className="text-xs text-gray-500">Last seen {selectedContact?.lastSeen}</p>
               </div>
-            )}
-
-            {/* Call buttons - Only show when contact is selected */}
-            {selectedContact && (
-              <div className="flex items-center space-x-0.5">
-                {/* Voice Call Button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="p-1 rounded-full hover:bg-gray-100"
-                  onClick={() => {
-                    if (webrtcManager && selectedContact) {
-                      webrtcManager.startVoiceCall(selectedContact.id)
-                    }
-                  }}
-                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
-                >
-                  <Phone className="h-3 w-3" />
-                </Button>
-                {/* Video Call Button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="p-1 rounded-full hover:bg-gray-100"
-                  onClick={() => {
-                    if (webrtcManager && selectedContact) {
-                      webrtcManager.startVideoCall(selectedContact.id)
-                    }
-                  }}
-                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
-                >
-                  <Video className="h-3 w-3" />
-                </Button>
-
-                {/* More Options Menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="p-1">
-                      <MoreVertical className="h-3 w-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete History
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
+            </div>
+            <div className="flex items-center space-x-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleCall('voice')}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Voice call"
+              >
+                <Phone className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleCall('video')}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Video call"
+              >
+                <Video className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="More options"
+              >
+                <MoreVertical className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Messages Area - Takes remaining space between header and footer */}
+        {/* Messages Area - Scrollable only, fixed height */}
         <div className="flex-1 overflow-hidden relative min-h-0">
           <ScrollArea 
             ref={scrollAreaRef}

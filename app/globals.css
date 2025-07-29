@@ -93,6 +93,22 @@ body {
   }
 }
 
+/* Prevent body scroll when keyboard is open */
+body.keyboard-open {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure the main container doesn't cause page scroll */
+#chat-main-container {
+  position: relative;
+  overflow: hidden !important;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Fixed Footer Styles - Always visible and above keyboard */
 .fixed-footer {
   position: fixed !important;
@@ -106,14 +122,6 @@ body {
   z-index: 50 !important;
 }
 
-/* Prevent body scroll when keyboard is open */
-body.keyboard-open {
-  position: fixed;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
 /* Ensure messages don't get hidden behind footer */
 .messages-container {
   padding-bottom: 4rem !important; /* 64px for footer height */
@@ -124,6 +132,7 @@ body.keyboard-open {
   /* Prevent pull-to-refresh from affecting layout */
   body {
     overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
   
   /* Ensure footer is always visible on mobile */
@@ -133,5 +142,11 @@ body.keyboard-open {
     left: 0 !important;
     right: 0 !important;
     z-index: 50 !important;
+  }
+  
+  /* Prevent viewport issues on mobile */
+  html, body {
+    height: 100%;
+    overflow: hidden;
   }
 }
