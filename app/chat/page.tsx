@@ -667,11 +667,13 @@ export default function ChatPage() {
 
   // Handle input focus for mobile
   const handleInputFocus = () => {
-    setIsKeyboardVisible(true);
+    // When input is focused, ensure footer is properly positioned
     setTimeout(() => {
-      scrollToBottom();
-    }, 100) // Reduced delay for faster response
-  }
+      handleViewportChange();
+      // Scroll to bottom to show the input area
+      scrollToBottom('instant');
+    }, 100);
+  };
 
   const handleInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
     // If send button was just clicked, don't close keyboard
@@ -702,14 +704,13 @@ export default function ChatPage() {
       const isKeyboardOpen = keyboardHeight > 150;
       setIsKeyboardVisible(isKeyboardOpen);
       
-      // Update main container height to account for keyboard
+      // Set CSS custom property for viewport height
+      document.documentElement.style.setProperty('--vh', `${newHeight * 0.01}px`);
+      
+      // Update main container height
       const mainContainer = document.getElementById('chat-main-container');
       if (mainContainer) {
-        if (isKeyboardOpen) {
-          mainContainer.style.height = `${newHeight}px`;
-        } else {
-          mainContainer.style.height = '100vh';
-        }
+        mainContainer.style.height = `${newHeight}px`;
       }
     }
   }, []);
@@ -1387,14 +1388,9 @@ export default function ChatPage() {
         ref={chatContainerRef}
         id="chat-main-container"
         className={cn(
-          "flex-1 flex flex-col bg-white relative",
+          "flex-1 flex flex-col bg-white relative h-screen-mobile",
           isSidebarOpen ? "z-0" : "z-10"
         )}
-        style={{
-          height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport 
-            ? `${window.visualViewport?.height || window.innerHeight}px` 
-            : "100vh"
-        }}
       >
         {/* Sticky Header - Always visible with conditional z-index */}
         <div className={cn(
@@ -1477,7 +1473,7 @@ export default function ChatPage() {
         </div>
 
         {/* Messages Area - Flexible height */}
-        <div className="flex-1 overflow-hidden">
+        <div id="messages-area" className="flex-1 overflow-hidden">
           {selectedContact ? (
             <ScrollArea 
               ref={scrollAreaRef}
@@ -1577,10 +1573,22 @@ export default function ChatPage() {
         )}
 
         {/* Sticky Footer - Always at bottom */}
-        <div className={cn(
-          "sticky bottom-0 z-50 bg-white border-t shadow-sm",
-          isSidebarOpen ? "z-0" : "z-50"
-        )}>
+        <div 
+          id="chat-footer" 
+          className={cn(
+            "bg-white border-t shadow-sm",
+            isSidebarOpen ? "z-0" : "z-50"
+          )}
+          style={{
+            position: isKeyboardVisible ? 'absolute' : 'sticky',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: isKeyboardVisible ? 50 : (isSidebarOpen ? 0 : 50),
+            height: 'auto',
+            minHeight: '80px'
+          }}
+        >
           {selectedContact && (
             <div className="p-4">
               <div className="flex items-center space-x-2">
