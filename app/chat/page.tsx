@@ -691,14 +691,18 @@ export default function ChatPage() {
 
   // Handle viewport changes (keyboard open/close)
   const handleViewportChange = useCallback(() => {
-    if (window.visualViewport) {
-      const viewportHeight = window.visualViewport.height;
-      const windowHeight = window.innerHeight;
-      const keyboardHeight = windowHeight - viewportHeight;
-      
-      // Consider keyboard open if it takes up more than 150px
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      const { height: viewportHeight } = window.visualViewport;
+      const keyboardHeight = window.innerHeight - viewportHeight;
       const isKeyboardOpen = keyboardHeight > 150;
       setIsKeyboardVisible(isKeyboardOpen);
+      
+      // Add/remove body class to prevent scrolling when keyboard is open
+      if (isKeyboardOpen) {
+        document.body.classList.add('keyboard-open');
+      } else {
+        document.body.classList.remove('keyboard-open');
+      }
       
       // Update main container height to account for keyboard
       const mainContainer = document.getElementById('chat-main-container');
@@ -727,6 +731,8 @@ export default function ChatPage() {
         }
         window.removeEventListener('resize', handleViewportChange);
         window.removeEventListener('orientationchange', handleViewportChange);
+        // Clean up body class
+        document.body.classList.remove('keyboard-open');
       };
     }
   }, [handleViewportChange]);
@@ -1386,41 +1392,28 @@ export default function ChatPage() {
           isSidebarOpen ? "z-0" : "z-10"
         )}
       >
-        {/* Sticky Header - Always visible with conditional z-index */}
+        {/* Compact Header - Optimized for mobile */}
         <div className={cn(
           "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
-          isSidebarOpen ? "z-0" : "z-40" // Lower z-index when sidebar is open
+          isSidebarOpen ? "z-0" : "z-40"
         )}>
-          {/* Top Bar with Sidebar Toggle */}
-          <div className="p-3 flex items-center space-x-3 flex-shrink-0">
+          {/* Compact Top Bar with Sidebar Toggle */}
+          <div className="p-2 flex items-center justify-between flex-shrink-0">
             <Button
               variant="ghost"
               size="sm"
               onClick={toggleSidebar}
-              className="p-2 rounded-full hover:bg-gray-100"
+              className="p-1.5 rounded-full hover:bg-gray-100"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <div className="flex-1">
-              <h2 className="text-lg font-semibold">Chat</h2>
-            </div>
-          </div>
-
-          {/* Contact header - Always visible */}
-          {selectedContact ? (
-            <div className="p-4 flex items-center justify-between flex-shrink-0 border-t border-gray-100">
-              <div className="flex items-center space-x-3">
-                <Avatar>
-                  <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
-                  <AvatarFallback>
-                    {selectedContact?.name
-                      ? selectedContact.name.split(" ").map((n) => n[0]).join("")
-                      : "?"}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
-                  <p className="text-sm text-gray-500">
+            
+            {/* Contact info - Only show when contact is selected */}
+            {selectedContact && (
+              <div className="flex items-center space-x-2 flex-1 justify-center">
+                <div className="text-center">
+                  <h3 className="font-semibold text-sm">{selectedContact?.name || "No Contact"}</h3>
+                  <p className="text-xs text-gray-500">
                     {isTyping
                       ? "Typing..."
                       : contactStatus.online
@@ -1431,12 +1424,16 @@ export default function ChatPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center space-x-2">
+            )}
+
+            {/* Call buttons - Only show when contact is selected */}
+            {selectedContact && (
+              <div className="flex items-center space-x-1">
                 {/* Voice Call Button */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="p-2 rounded-full hover:bg-gray-100"
+                  className="p-1.5 rounded-full hover:bg-gray-100"
                   onClick={() => {
                     if (webrtcManager && selectedContact) {
                       webrtcManager.startVoiceCall(selectedContact.id)
@@ -1450,7 +1447,7 @@ export default function ChatPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="p-2 rounded-full hover:bg-gray-100"
+                  className="p-1.5 rounded-full hover:bg-gray-100"
                   onClick={() => {
                     if (webrtcManager && selectedContact) {
                       webrtcManager.startVideoCall(selectedContact.id)
@@ -1464,7 +1461,7 @@ export default function ChatPage() {
                 {/* More Options Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="p-1.5">
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -1476,37 +1473,30 @@ export default function ChatPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </div>
-          ) : (
-            <div className="p-4 flex items-center justify-center flex-shrink-0 border-t border-gray-100">
-              <div className="text-center">
-                <h3 className="font-semibold text-gray-500">Select a contact to start chatting</h3>
-                <p className="text-sm text-gray-400 mt-1">Choose someone from your contacts list</p>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Messages - Scrollable area with proper spacing for sticky footer */}
+        {/* Messages - Compact scrollable area optimized for mobile */}
         <div className="flex-1 overflow-hidden relative">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="flex-1 p-4"
+            className="messages-container flex-1 p-2 pb-20"
             onScroll={handleScroll}
           >
-            <div className="space-y-4 pb-4">
+            <div className="space-y-2 pb-2">
               {isLoadingMessages ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
                   <span className="text-sm text-gray-500">Loading messages...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                    <MessageSquare className="h-8 w-8 text-gray-400" />
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                    <MessageSquare className="h-6 w-6 text-gray-400" />
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No messages yet</h3>
-                  <p className="text-sm text-gray-500 max-w-sm">
+                  <h3 className="text-base font-medium text-gray-900 mb-1">No messages yet</h3>
+                  <p className="text-xs text-gray-500 max-w-sm">
                     Start a conversation with {selectedContact?.name || 'your contact'} by sending your first message!
                   </p>
                 </div>
@@ -1514,11 +1504,11 @@ export default function ChatPage() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={cn("flex mb-4", message.senderId === "me" ? "justify-end" : "justify-start")}
+                    className={cn("flex mb-2", message.senderId === "me" ? "justify-end" : "justify-start")}
                   >
                     <div
                       className={cn(
-                        "max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm",
+                        "max-w-xs lg:max-w-md px-3 py-2 rounded-2xl shadow-sm",
                         message.senderId === "me" 
                           ? "bg-blue-500 text-white rounded-br-md" 
                           : "bg-gray-100 text-gray-900 rounded-bl-md border border-gray-200"
@@ -1528,19 +1518,19 @@ export default function ChatPage() {
                         <p className="text-sm leading-relaxed break-words">{message.content}</p>
                       )}
                       {message.type === "image" && message.content && (
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           <img
                             src={message.content}
                             alt="Shared image"
                             className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-                            style={{ maxWidth: 240, maxHeight: 320 }}
+                            style={{ maxWidth: 200, maxHeight: 250 }}
                             onClick={() => setPreviewImage(message.content)}
                           />
                         </div>
                       )}
                       {message.type === "file" && message.content && (
-                        <div className="flex items-center space-x-3 p-3 bg-white bg-opacity-20 rounded-lg">
-                          <File className="h-8 w-8 text-blue-500 flex-shrink-0" />
+                        <div className="flex items-center space-x-2 p-2 bg-white bg-opacity-20 rounded-lg">
+                          <File className="h-6 w-6 text-blue-500 flex-shrink-0" />
                           <div className="min-w-0 flex-1">
                             <a 
                               href={message.content} 
@@ -1555,7 +1545,7 @@ export default function ChatPage() {
                         </div>
                       )}
                       <p className={cn(
-                        "text-xs mt-2 opacity-70",
+                        "text-xs mt-1 opacity-70",
                         message.senderId === "me" ? "text-right" : "text-left"
                       )}>
                         {message.timestamp}
@@ -1564,7 +1554,7 @@ export default function ChatPage() {
                   </div>
                 ))
               )}
-              <div ref={messagesEndRef} className="h-4" /> {/* Add height to ensure proper scrolling */}
+              <div ref={messagesEndRef} className="h-2" /> {/* Reduced height for more space */}
             </div>
           </ScrollArea>
 
@@ -1575,7 +1565,7 @@ export default function ChatPage() {
                 scrollToBottom();
                 setNewMessageCount(0);
               }}
-              className="fixed bottom-20 right-4 z-50 rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white p-3"
+              className="fixed bottom-20 right-3 z-50 rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white p-2"
               size="sm"
             >
               <ChevronDown className="h-4 w-4" />
@@ -1588,24 +1578,30 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Sticky Footer - Always at bottom with conditional z-index */}
+        {/* Fixed Footer - Compact for mobile */}
         <div 
           className={cn(
-            "sticky bottom-0 bg-white border-t border-gray-200 shadow-sm",
+            "fixed-footer bg-white border-t border-gray-200 shadow-sm",
             isSidebarOpen ? "z-0" : "z-50"
           )}
           style={{
-            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)"
+            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)",
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            transform: "translateZ(0)", // Force hardware acceleration
+            willChange: "transform" // Optimize for animations
           }}
         >
-          <div className="p-4">
+          <div className="p-2">
             <div className="flex items-center space-x-2">
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={handleImageButtonClick} 
                 disabled={isUploadingImage}
-                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
                 title="Send image"
               >
                 <ImageIcon className="h-4 w-4" />
@@ -1622,7 +1618,7 @@ export default function ChatPage() {
                 size="sm" 
                 onClick={handleFileButtonClick} 
                 disabled={isUploadingImage}
-                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
                 title="Send file"
               >
                 <Paperclip className="h-4 w-4" />
@@ -1642,7 +1638,7 @@ export default function ChatPage() {
                   onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  className="pr-20 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="pr-16 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   style={{
                     fontSize: "16px", // Prevents zoom on iOS
                   }}
@@ -1668,7 +1664,7 @@ export default function ChatPage() {
                   size="sm" 
                   disabled={isUploadingImage || !newMessage.trim()}
                   className={cn(
-                    "p-2 rounded-full transition-all duration-200",
+                    "p-1.5 rounded-full transition-all duration-200",
                     newMessage.trim() 
                       ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
