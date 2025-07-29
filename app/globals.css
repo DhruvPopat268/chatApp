@@ -113,9 +113,9 @@ body.keyboard-open {
   overflow: hidden;
 }
 
-/* Ensure proper spacing for compact fixed footer */
+/* Ensure proper spacing for ultra-compact fixed footer */
 .messages-container {
-  padding-bottom: 4rem !important; /* 64px for compact footer height */
+  padding-bottom: 2.5rem !important; /* 40px for ultra-compact footer height */
 }
 
 /* Mobile-specific fixes */
@@ -133,8 +133,8 @@ body.keyboard-open {
     overscroll-behavior-y: contain;
   }
   
-  /* Optimize for mobile screens */
+  /* Ultra-compact for mobile screens */
   .messages-container {
-    padding-bottom: 3.5rem !important; /* Even more compact on mobile */
+    padding-bottom: 2rem !important; /* 32px for ultra-compact mobile */
   }
 }
