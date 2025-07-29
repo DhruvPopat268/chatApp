@@ -1045,14 +1045,16 @@ export default function ChatPage() {
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
       {/* Mobile Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-10 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-5 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
       <div
         className={cn(
-          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out z-20 md:z-auto relative",
-          isSidebarOpen ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto" : "w-0 md:w-12 overflow-hidden",
+          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out relative",
+          isSidebarOpen 
+            ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto z-10" 
+            : "w-0 md:w-12 overflow-hidden z-20 md:z-auto"
         )}
       >
         {/* Sidebar Toggle Button */}
@@ -1074,7 +1076,7 @@ export default function ChatPage() {
         <div
           className={cn(
             "transition-all duration-300 h-full",
-            isSidebarOpen ? "opacity-100" : "opacity-0 md:opacity-100",
+            isSidebarOpen ? "opacity-100 z-10" : "opacity-0 md:opacity-100",
           )}
         >
           {isSidebarOpen ? (
@@ -1313,7 +1315,8 @@ export default function ChatPage() {
         ref={chatContainerRef}
         className={cn(
           "flex-1 flex flex-col relative",
-          isSidebarOpen && "md:ml-0" // Add margin on desktop when sidebar is open
+          isSidebarOpen && "md:ml-0", // Add margin on desktop when sidebar is open
+          isSidebarOpen ? "z-0" : "z-10" // Conditional z-index based on sidebar state
         )}
         style={{
           height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
@@ -1321,8 +1324,11 @@ export default function ChatPage() {
             : "100vh",
         }}
       >
-        {/* Sticky Header - Always visible with higher z-index */}
-        <div className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95">
+        {/* Sticky Header - Always visible with conditional z-index */}
+        <div className={cn(
+          "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
+          isSidebarOpen ? "z-0" : "z-40" // Lower z-index when sidebar is open
+        )}>
           {/* Top Bar with Sidebar Toggle */}
           <div className="p-3 flex items-center space-x-3 flex-shrink-0">
             <Button
@@ -1536,8 +1542,9 @@ export default function ChatPage() {
         {/* Message Input - Sticky Footer - Always visible */}
         <div
           className={cn(
-            "sticky bottom-0 bg-white border-t border-gray-200 p-4 flex-shrink-0 z-50 shadow-lg backdrop-blur-sm bg-white/95",
-            isKeyboardVisible && "pb-safe-area-inset-bottom"
+            "sticky bottom-0 bg-white border-t border-gray-200 p-4 flex-shrink-0 shadow-lg backdrop-blur-sm bg-white/95",
+            isKeyboardVisible && "pb-safe-area-inset-bottom",
+            isSidebarOpen ? "z-0" : "z-50" // Conditional z-index but always accessible
           )}
           style={{
             paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
