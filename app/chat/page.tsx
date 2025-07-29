@@ -151,7 +151,9 @@ export default function ChatPage() {
   const [editedUser, setEditedUser] = useState<CurrentUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
+  const isSendButtonClickedRef = useRef(false);
   const [searchedUsers, setSearchedUsers] = useState<ApiUser[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [userContacts, setUserContacts] = useState<Contact[]>([])
@@ -669,9 +671,22 @@ export default function ChatPage() {
     }, 100) // Reduced delay for faster response
   }
 
-  const handleInputBlur = () => {
-    // Don't immediately set keyboard as hidden on blur
-    // Let the viewport change handler determine this
+  const handleInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    // If send button was just clicked, don't close keyboard
+    if (isSendButtonClickedRef.current) {
+      return;
+    }
+    
+    // Check if the related target (what we're clicking on) is the send button
+    const relatedTarget = event.relatedTarget as HTMLElement;
+    
+    if (relatedTarget && sendButtonRef.current && sendButtonRef.current.contains(relatedTarget)) {
+      // Don't close keyboard if clicking on send button
+      return;
+    }
+    
+    // For other blur events, let the viewport change handler determine keyboard state
+    // This prevents keyboard from closing when clicking outside the input
   }
 
   // Handle viewport changes for mobile keyboard
@@ -702,10 +717,18 @@ export default function ChatPage() {
   }, []);
 
   const sendMessage = () => {
-    if (!newMessage.trim() || !selectedContact || !currentUser) return
+    if (!newMessage.trim() || !selectedContact || !currentUser) return;
+
+    // Set flag to prevent blur
+    isSendButtonClickedRef.current = true;
+
+    // Immediately refocus the input to prevent blur
+    if (messageInputRef.current) {
+      messageInputRef.current.focus();
+    }
 
     // Send message via Socket.IO
-    socketManager.sendMessage(selectedContact.id, newMessage, "text")
+    socketManager.sendMessage(selectedContact.id, newMessage, "text");
 
     // Add message to local state immediately for optimistic UI
     const message: Message = {
@@ -714,10 +737,10 @@ export default function ChatPage() {
       content: newMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       type: "text",
-    }
+    };
 
-    setMessages(prev => [...prev, message])
-    setNewMessage("")
+    setMessages(prev => [...prev, message]);
+    setNewMessage("");
 
     // Update contact's last message
     setUserContacts(prev => prev.map(contact => {
@@ -727,16 +750,24 @@ export default function ChatPage() {
           lastMessage: newMessage,
           timestamp: "Just now",
           unread: 0
-        }
+        };
       }
-      return contact
-    }))
+      return contact;
+    }));
 
     // Scroll to bottom immediately after sending
     setTimeout(() => {
       scrollToBottom();
     }, 50);
-  }
+
+    // Reset flag and ensure input stays focused
+    setTimeout(() => {
+      isSendButtonClickedRef.current = false;
+      if (messageInputRef.current) {
+        messageInputRef.current.focus();
+      }
+    }, 100);
+  };
 
   const handleFileUpload = (type: "image" | "file") => {
     const message: Message = {
@@ -1610,20 +1641,36 @@ export default function ChatPage() {
                 }}
               />
             </div>
-            <Button 
-              onClick={sendMessage} 
-              size="sm" 
-              disabled={isUploadingImage || !newMessage.trim()}
-              className={cn(
-                "p-2 rounded-full transition-all duration-200",
-                newMessage.trim() 
-                  ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
-                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
-              )}
-              title="Send message"
+            <div 
+              className="flex-shrink-0"
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchStart={(e) => e.preventDefault()}
             >
-              <Send className="h-4 w-4" />
-            </Button>
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  sendMessage();
+                }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  sendMessage();
+                }}
+                ref={sendButtonRef}
+                size="sm" 
+                disabled={isUploadingImage || !newMessage.trim()}
+                className={cn(
+                  "p-2 rounded-full transition-all duration-200",
+                  newMessage.trim() 
+                    ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                )}
+                title="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
