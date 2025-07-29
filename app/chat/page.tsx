@@ -1392,27 +1392,27 @@ export default function ChatPage() {
           isSidebarOpen ? "z-0" : "z-10"
         )}
       >
-        {/* WhatsApp-style Header - Optimized for single screen */}
+        {/* Ultra-Compact Header - Must fit on single screen */}
         <div className={cn(
           "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
           isSidebarOpen ? "z-0" : "z-40"
         )}>
-          {/* WhatsApp-style header */}
-          <div className="px-3 py-2 flex items-center justify-between flex-shrink-0">
+          {/* Minimal header - essential info only */}
+          <div className="px-2 py-1 flex items-center justify-between flex-shrink-0">
             <Button
               variant="ghost"
               size="sm"
               onClick={toggleSidebar}
-              className="p-1.5 rounded-full hover:bg-gray-100"
+              className="p-1 rounded-full hover:bg-gray-100"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3 w-3" />
             </Button>
             
             {/* Contact info - Only show when contact is selected */}
             {selectedContact && (
-              <div className="flex items-center space-x-2 flex-1 justify-center">
+              <div className="flex items-center space-x-1 flex-1 justify-center">
                 <div className="text-center">
-                  <h3 className="font-semibold text-sm">{selectedContact?.name || "No Contact"}</h3>
+                  <h3 className="font-medium text-xs">{selectedContact?.name || "No Contact"}</h3>
                   <p className="text-xs text-gray-500">
                     {isTyping
                       ? "Typing..."
@@ -1428,12 +1428,12 @@ export default function ChatPage() {
 
             {/* Call buttons - Only show when contact is selected */}
             {selectedContact && (
-              <div className="flex items-center space-x-1">
+              <div className="flex items-center space-x-0.5">
                 {/* Voice Call Button */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="p-1.5 rounded-full hover:bg-gray-100"
+                  className="p-1 rounded-full hover:bg-gray-100"
                   onClick={() => {
                     if (webrtcManager && selectedContact) {
                       webrtcManager.startVoiceCall(selectedContact.id)
@@ -1441,13 +1441,13 @@ export default function ChatPage() {
                   }}
                   disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
                 >
-                  <Phone className="h-4 w-4" />
+                  <Phone className="h-3 w-3" />
                 </Button>
                 {/* Video Call Button */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="p-1.5 rounded-full hover:bg-gray-100"
+                  className="p-1 rounded-full hover:bg-gray-100"
                   onClick={() => {
                     if (webrtcManager && selectedContact) {
                       webrtcManager.startVideoCall(selectedContact.id)
@@ -1455,14 +1455,14 @@ export default function ChatPage() {
                   }}
                   disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
                 >
-                  <Video className="h-4 w-4" />
+                  <Video className="h-3 w-3" />
                 </Button>
 
                 {/* More Options Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="p-1.5">
-                      <MoreVertical className="h-4 w-4" />
+                    <Button variant="ghost" size="sm" className="p-1">
+                      <MoreVertical className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
@@ -1477,25 +1477,25 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Messages - WhatsApp-style layout optimized for single screen */}
+        {/* Messages - Ultra-compact for single screen view */}
         <div className="flex-1 overflow-hidden relative">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="messages-container flex-1 px-3 pb-16"
+            className="messages-container flex-1 px-2 pb-12"
             onScroll={handleScroll}
           >
-            <div className="space-y-2 pb-2">
+            <div className="space-y-1 pb-1">
               {isLoadingMessages ? (
-                <div className="flex items-center justify-center py-4">
+                <div className="flex items-center justify-center py-2">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   <span className="text-xs text-gray-500">Loading messages...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
-                    <MessageSquare className="h-5 w-5 text-gray-400" />
+                <div className="flex flex-col items-center justify-center py-4 text-center">
+                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+                    <MessageSquare className="h-4 w-4 text-gray-400" />
                   </div>
-                  <h3 className="text-sm font-medium text-gray-900 mb-1">No messages yet</h3>
+                  <h3 className="text-xs font-medium text-gray-900 mb-1">No messages yet</h3>
                   <p className="text-xs text-gray-500 max-w-sm">
                     Start a conversation with {selectedContact?.name || 'your contact'} by sending your first message!
                   </p>
@@ -1504,18 +1504,18 @@ export default function ChatPage() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={cn("flex mb-3", message.senderId === "me" ? "justify-end" : "justify-start")}
+                    className={cn("flex mb-1", message.senderId === "me" ? "justify-end" : "justify-start")}
                   >
                     <div
                       className={cn(
-                        "max-w-[75%] px-3 py-2 rounded-2xl shadow-sm",
+                        "max-w-[80%] px-2 py-1.5 rounded-xl shadow-sm",
                         message.senderId === "me" 
                           ? "bg-blue-500 text-white rounded-br-md" 
                           : "bg-gray-100 text-gray-900 rounded-bl-md border border-gray-200"
                       )}
                     >
                       {message.type === "text" && (
-                        <p className="text-sm leading-relaxed break-words">{message.content}</p>
+                        <p className="text-xs leading-relaxed break-words">{message.content}</p>
                       )}
                       {message.type === "image" && message.content && (
                         <div className="space-y-1">
@@ -1523,29 +1523,29 @@ export default function ChatPage() {
                             src={message.content}
                             alt="Shared image"
                             className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-                            style={{ maxWidth: 200, maxHeight: 250 }}
+                            style={{ maxWidth: 150, maxHeight: 200 }}
                             onClick={() => setPreviewImage(message.content)}
                           />
                         </div>
                       )}
                       {message.type === "file" && message.content && (
-                        <div className="flex items-center space-x-2 p-2 bg-white bg-opacity-20 rounded-lg">
-                          <File className="h-5 w-5 text-blue-500 flex-shrink-0" />
+                        <div className="flex items-center space-x-1 p-1 bg-white bg-opacity-20 rounded-lg">
+                          <File className="h-4 w-4 text-blue-500 flex-shrink-0" />
                           <div className="min-w-0 flex-1">
                             <a 
                               href={message.content} 
                               target="_blank" 
                               rel="noopener noreferrer" 
-                              className="text-sm font-medium underline hover:no-underline block truncate"
+                              className="text-xs font-medium underline hover:no-underline block truncate"
                             >
                               {message.fileName || 'Download file'}
                             </a>
-                            <p className="text-xs opacity-70 mt-1">{message.fileSize}</p>
+                            <p className="text-xs opacity-70">{message.fileSize}</p>
                           </div>
                         </div>
                       )}
                       <p className={cn(
-                        "text-xs mt-1 opacity-70",
+                        "text-xs mt-0.5 opacity-70",
                         message.senderId === "me" ? "text-right" : "text-left"
                       )}>
                         {message.timestamp}
@@ -1554,7 +1554,7 @@ export default function ChatPage() {
                   </div>
                 ))
               )}
-              <div ref={messagesEndRef} className="h-2" />
+              <div ref={messagesEndRef} className="h-1" />
             </div>
           </ScrollArea>
 
@@ -1565,7 +1565,7 @@ export default function ChatPage() {
                 scrollToBottom();
                 setNewMessageCount(0);
               }}
-              className="fixed bottom-20 right-3 z-50 rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white p-2"
+              className="fixed bottom-14 right-2 z-50 rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white p-1.5"
               size="sm"
             >
               <ChevronDown className="h-4 w-4" />
@@ -1578,7 +1578,7 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* WhatsApp-style Footer - Optimized for single screen */}
+        {/* Fixed Footer - Ultra-compact for single screen */}
         <div 
           className={cn(
             "fixed-footer bg-white border-t border-gray-200 shadow-sm",
@@ -1594,17 +1594,17 @@ export default function ChatPage() {
             willChange: "transform" // Optimize for animations
           }}
         >
-          <div className="px-3 py-2">
-            <div className="flex items-center space-x-2">
+          <div className="px-2 py-1">
+            <div className="flex items-center space-x-1">
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={handleImageButtonClick} 
                 disabled={isUploadingImage}
-                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
                 title="Send image"
               >
-                <ImageIcon className="h-4 w-4" />
+                <ImageIcon className="h-3 w-3" />
               </Button>
               <input
                 ref={imageInputRef}
@@ -1618,10 +1618,10 @@ export default function ChatPage() {
                 size="sm" 
                 onClick={handleFileButtonClick} 
                 disabled={isUploadingImage}
-                className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
                 title="Send file"
               >
-                <Paperclip className="h-4 w-4" />
+                <Paperclip className="h-3 w-3" />
               </Button>
               <input
                 ref={fileInputRef}
@@ -1638,7 +1638,7 @@ export default function ChatPage() {
                   onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  className="pr-14 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="pr-12 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs h-7"
                   style={{
                     fontSize: "16px", // Prevents zoom on iOS
                   }}
@@ -1664,14 +1664,14 @@ export default function ChatPage() {
                   size="sm" 
                   disabled={isUploadingImage || !newMessage.trim()}
                   className={cn(
-                    "p-1.5 rounded-full transition-all duration-200",
+                    "p-1 rounded-full transition-all duration-200",
                     newMessage.trim() 
                       ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   )}
                   title="Send message"
                 >
-                  <Send className="h-4 w-4" />
+                  <Send className="h-3 w-3" />
                 </Button>
               </div>
             </div>
