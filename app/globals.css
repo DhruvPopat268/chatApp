@@ -113,9 +113,9 @@ body.keyboard-open {
   overflow: hidden;
 }
 
-/* Ensure proper spacing for ultra-compact fixed footer */
+/* Ensure proper spacing for WhatsApp-style footer */
 .messages-container {
-  padding-bottom: 2.5rem !important; /* 40px for ultra-compact footer height */
+  padding-bottom: 3.5rem !important; /* 56px for WhatsApp-style footer height */
 }
 
 /* Mobile-specific fixes */
@@ -133,8 +133,8 @@ body.keyboard-open {
     overscroll-behavior-y: contain;
   }
   
-  /* Ultra-compact for mobile screens */
+  /* WhatsApp-style spacing for mobile screens */
   .messages-container {
-    padding-bottom: 2rem !important; /* 32px for ultra-compact mobile */
+    padding-bottom: 3rem !important; /* 48px for mobile */
   }
 }
