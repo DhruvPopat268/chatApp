@@ -184,6 +184,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
@@ -208,18 +209,18 @@ export default function ChatPage() {
         avatar: user.avatar || "/placeholder.svg?height=40&width=40",
         bio: "Hey there! I'm using this chat app.",
       }
-      
+
       setCurrentUser(currentUserData)
       setEditedUser(currentUserData)
 
       // Connect to Socket.IO
       const socket = socketManager.connect()
-      
+
       // Initialize WebRTC manager
       if (socket) {
         const webrtc = new WebRTCManager(socket)
         setWebrtcManager(webrtc)
-        
+
         // Listen for call state changes
         webrtc.onStateChange((state) => {
           setCallState(state)
@@ -265,7 +266,7 @@ export default function ChatPage() {
       localAudioRef.current.srcObject = callState.localStream
       localAudioRef.current.muted = true
       localAudioRef.current.volume = 0
-      
+
       // Delay play to avoid AbortError
       setTimeout(() => {
         if (localAudioRef.current) {
@@ -280,7 +281,7 @@ export default function ChatPage() {
       remoteAudioRef.current.srcObject = callState.remoteStream
       remoteAudioRef.current.muted = false
       remoteAudioRef.current.volume = 1
-      
+
       // Delay play to avoid AbortError
       setTimeout(() => {
         if (remoteAudioRef.current) {
@@ -305,207 +306,200 @@ export default function ChatPage() {
       if (response.ok) {
         const users = await response.json()
         // Filter out users who are already contacts
-        const filteredUsers = users.filter((user: ApiUser) => 
+        const filteredUsers = users.filter((user: ApiUser) =>
           !userContacts.some(contact => contact.id === user._id)
         )
-        setSearchedUsers(filteredUsers)
-      } else {
-        console.error('Failed to search users')
-        setSearchedUsers([])
-      }
-    } catch (error) {
-      console.error('Error searching users:', error)
-      setSearchedUsers([])
-    } finally {
-      setIsSearching(false)
-    }
-  }
+      {/* Main Chat Area - Sticky header/footer, scrollable messages */}
+      <div ref={chatContainerRef} className={cn("flex-1 flex flex-col relative bg-gray-50")}
+        style={{ minHeight: 0, height: '100vh' }}>
+        {/* Sticky Header */}
+        <div className="sticky top-0 left-0 right-0 z-30 bg-white border-b border-gray-200">
+          {/* Top Bar with Sidebar Toggle */}
+          <div className="p-3 flex items-center space-x-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleSidebar}
+              className="p-2 rounded-full hover:bg-gray-100"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold">Chat</h2>
+            </div>
+          </div>
+          {/* Contact header */}
+          <div className="p-4 flex items-center justify-between border-t border-gray-100">
+            <div className="flex items-center space-x-3">
+              <Avatar>
+                <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
+                <AvatarFallback>
+                  {selectedContact?.name
+                    ? selectedContact.name.split(" ").map((n) => n[0]).join("")
+                    : "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
+                <p className="text-sm text-gray-500">
+                  {selectedContact?.online ? "Online" : "Offline"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              {/* Voice Call Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-2 rounded-full hover:bg-gray-100"
+                onClick={() => {
+                  if (webrtcManager && selectedContact) {
+                    webrtcManager.startVoiceCall(selectedContact.id)
+                  }
+                }}
+                disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+              >
+                <Phone className="h-4 w-4" />
+              </Button>
+              {/* Video Call Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-2 rounded-full hover:bg-gray-100"
+                onClick={() => {
+                  if (webrtcManager && selectedContact) {
+                    webrtcManager.startVideoCall(selectedContact.id)
+                  }
+                }}
+                disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+              >
+                <Video className="h-4 w-4" />
+              </Button>
+              {/* More Options Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete History
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </div>
 
-  // Debounced search
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      searchUsers(friendSearchQuery)
-    }, 300)
+        {/* Scrollable Messages Area */}
+        <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollAreaRef} style={{ padding: '1rem', paddingBottom: '6rem' }}>
+          <div className="space-y-4 pb-4">
+            {isLoadingMessages ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                <span className="text-sm text-gray-500">Loading messages...</span>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-sm text-gray-500">No messages yet. Start a conversation!</span>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
+                >
+                  <div
+                    className={cn(
+                      "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
+                      message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
+                    )}
+                  >
+                    {message.type === "text" && <p className="text-sm">{message.content}</p>}
+                    {message.type === "image" && message.content && (
+                      <div className="space-y-2">
+                        <img
+                          src={message.content}
+                          alt="Shared image"
+                          className="rounded-lg max-w-full h-auto cursor-pointer"
+                          style={{ maxWidth: 240, maxHeight: 320 }}
+                          onClick={() => setPreviewImage(message.content)}
+                        />
+                      </div>
+                    )}
+                    {message.type === "file" && message.content && (
+                      <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                        <File className="h-8 w-8 text-blue-500" />
+                        <div>
+                          <a href={message.content} target="_blank" rel="noopener noreferrer" className="text-sm font-medium underline">
+                            {message.fileName || 'Download file'}
+                          </a>
+                          <p className="text-xs text-gray-500">{message.fileSize}</p>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
 
-    return () => clearTimeout(timeoutId)
-  }, [friendSearchQuery])
-
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen)
-  }
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
-  // Handle virtual keyboard on mobile
-  useEffect(() => {
-    const handleResize = () => {
-      if (typeof window !== "undefined") {
-        const windowHeight = window.innerHeight
-        const documentHeight = document.documentElement.clientHeight
-
-        // Detect if virtual keyboard is open (significant height difference)
-        const keyboardOpen = windowHeight < documentHeight * 0.75
-        setIsKeyboardVisible(keyboardOpen)
-
-        // Scroll to bottom when keyboard opens/closes
-        if (keyboardOpen) {
-          setTimeout(() => {
-            scrollToBottom()
-            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-          }, 100)
-        }
-      }
-    }
-
-    const handleVisualViewportChange = () => {
-      if (typeof window !== "undefined" && window.visualViewport) {
-        const viewport = window.visualViewport
-        const keyboardOpen = viewport.height < window.innerHeight * 0.75
-        setIsKeyboardVisible(keyboardOpen)
-
-        if (keyboardOpen) {
-          setTimeout(() => {
-            scrollToBottom()
-            messageInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-          }, 100)
-        }
-      }
-    }
-
-    // Listen for window resize (fallback for older browsers)
-    window.addEventListener("resize", handleResize)
-
-    // Listen for visual viewport changes (modern browsers)
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleVisualViewportChange)
-    }
-
-    // Initial check
-    handleResize()
-
-    return () => {
-      window.removeEventListener("resize", handleResize)
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", handleVisualViewportChange)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  // Socket.IO event listeners
-  useEffect(() => {
-    if (!currentUser) return
-
-    // Listen for new messages
-    socketManager.onNewMessage((message) => {
-      console.log('New message received:', message)
-      
-      // Add message to the current conversation if it matches
-      if (selectedContact && 
-          (message.senderId._id === selectedContact.id || message.receiverId._id === selectedContact.id)) {
-        const newMessage: Message = {
-          id: message._id,
-          senderId: message.senderId._id === currentUser.id ? "me" : message.senderId._id,
-          content: message.content,
-          timestamp: new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          type: message.type,
-          fileName: message.fileName,
-          fileSize: message.fileSize,
-        }
-        setMessages(prev => [...prev, newMessage])
-      }
-
-      // Update contact's last message
-      setUserContacts(prev => prev.map(contact => {
-        if (contact.id === message.senderId._id) {
-          return {
-            ...contact,
-            lastMessage: message.content,
-            timestamp: "Just now",
-            unread: contact.unread + 1
-          }
-        }
-        return contact
-      }))
-    })
-
-    // Listen for message sent confirmation
-    socketManager.onMessageSent((message) => {
-      console.log('Message sent successfully:', message)
-    })
-
-    // Listen for message errors
-    socketManager.onMessageError((error) => {
-      console.error('Message error:', error)
-    })
-
-    // Listen for typing indicators
-    socketManager.onUserTyping((data) => {
-      if (selectedContact && data.userId === selectedContact.id) {
-        // You can add a typing indicator state here
-        console.log('User is typing...')
-      }
-    })
-
-    socketManager.onUserStoppedTyping((data) => {
-      if (selectedContact && data.userId === selectedContact.id) {
-        // You can remove typing indicator here
-        console.log('User stopped typing')
-      }
-    })
-
-    return () => {
-      socketManager.removeAllListeners()
-    }
-  }, [currentUser, selectedContact])
-
-  // Load messages when selectedContact changes
-  useEffect(() => {
-    if (selectedContact && currentUser) {
-      loadMessages(selectedContact.id)
-    }
-  }, [selectedContact?.id, currentUser?.id])
-
-  // Handle input focus for mobile
-  const handleInputFocus = () => {
-    setTimeout(() => {
-      if (messageInputRef.current) {
-        messageInputRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-          inline: "nearest",
-        })
-      }
-    }, 300) // Delay to allow keyboard animation
-  }
-
-  const sendMessage = () => {
-    if (!newMessage.trim() || !selectedContact || !currentUser) return
-
-    // Send message via Socket.IO
-    socketManager.sendMessage(selectedContact.id, newMessage, "text")
-
-    // Add message to local state immediately for optimistic UI
-    const message: Message = {
-      id: Date.now().toString(),
-      senderId: "me",
-      content: newMessage,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      type: "text",
-    }
-
-    setMessages(prev => [...prev, message])
-    setNewMessage("")
-
-    // Update contact's last message
-    setUserContacts(prev => prev.map(contact => {
-      if (contact.id === selectedContact.id) {
-        return {
+        {/* Sticky Footer (Message Input) */}
+        <div
+          className={cn(
+            "sticky bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 p-4",
+            isKeyboardVisible && "pb-safe-area-inset-bottom"
+          )}
+          style={{
+            paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
+            boxShadow: '0 -2px 8px rgba(0,0,0,0.03)'
+          }}
+        >
+          <div className="flex items-center space-x-2">
+            <Button variant="ghost" size="sm" onClick={handleImageButtonClick} disabled={isUploadingImage}>
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <Button variant="ghost" size="sm" onClick={handleFileButtonClick} disabled={isUploadingImage}>
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <div className="flex-1 relative">
+              <Input
+                ref={messageInputRef}
+                placeholder="Type a message..."
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                onFocus={handleInputFocus}
+                className="pr-20"
+                style={{
+                  fontSize: "16px", // Prevents zoom on iOS
+                }}
+              />
+            </div>
+            <Button onClick={sendMessage} size="sm" disabled={isUploadingImage}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
           ...contact,
           lastMessage: newMessage,
           timestamp: "Just now",
@@ -572,11 +566,11 @@ export default function ChatPage() {
           online: false,
           unread: 0,
         }
-        
+
         setUserContacts(prev => [...prev, newContact])
         setSearchedUsers(prev => prev.filter(u => u._id !== user._id))
         setFriendSearchQuery("")
-        
+
         // Show success feedback
         console.log(`Added ${user.username} to contacts`)
       } else {
@@ -803,17 +797,17 @@ export default function ChatPage() {
                           <DialogTitle>Add Friends</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
-                                                      <div className="relative">
-                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                              <Input
-                                placeholder="Search people..."
-                                value={friendSearchQuery}
-                                onChange={(e) => setFriendSearchQuery(e.target.value)}
-                                className="pl-10"
-                              />
-                            </div>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                            <Input
+                              placeholder="Search people..."
+                              value={friendSearchQuery}
+                              onChange={(e) => setFriendSearchQuery(e.target.value)}
+                              className="pl-10"
+                            />
+                          </div>
 
-                                                    {/* Searched Users */}
+                          {/* Searched Users */}
                           {friendSearchQuery.trim() && (
                             <div>
                               <h3 className="text-sm font-medium text-gray-700 mb-2">Search Results</h3>
@@ -1012,7 +1006,7 @@ export default function ChatPage() {
           "bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0 transition-all duration-300",
           isKeyboardVisible ? "fixed top-0 left-0 right-0 z-40 shadow-md" : "relative z-10"
         )}
-        style={isKeyboardVisible ? { width: '100vw' } : {}}>
+          style={isKeyboardVisible ? { width: '100vw' } : {}}>
           <div className="flex items-center space-x-3">
             <Avatar>
               <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
@@ -1031,9 +1025,9 @@ export default function ChatPage() {
           </div>
           <div className="flex items-center space-x-2">
             {/* Voice Call Button */}
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               className="p-2 rounded-full hover:bg-gray-100"
               onClick={() => {
                 if (webrtcManager && selectedContact) {
@@ -1058,9 +1052,9 @@ export default function ChatPage() {
             >
               <Video className="h-4 w-4" />
             </Button>
-            
 
-            
+
+
             {/* More Options Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1080,7 +1074,7 @@ export default function ChatPage() {
 
         {/* Messages - Scrollable area */}
         <div className="flex-1 overflow-hidden">
-          <ScrollArea className="h-full p-4">
+          <ScrollArea className="h-full p-4" viewportRef={scrollAreaRef}>
             <div className="space-y-4 pb-4">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center py-8">
@@ -1325,8 +1319,8 @@ export default function ChatPage() {
                 <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center space-x-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="lg"
                   onClick={() => webrtcManager?.rejectCall()}
                   className="bg-red-500 text-white hover:bg-red-600"
@@ -1334,7 +1328,7 @@ export default function ChatPage() {
                   <PhoneOff className="h-5 w-5 mr-2" />
                   Decline
                 </Button>
-                <Button 
+                <Button
                   size="lg"
                   onClick={async () => {
                     if (webrtcManager) {
@@ -1367,8 +1361,8 @@ export default function ChatPage() {
                 <p className="text-gray-600">Voice Call</p>
               </div>
               <div className="flex justify-center">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="lg"
                   onClick={() => webrtcManager?.endCall()}
                   className="bg-red-500 text-white hover:bg-red-600"
@@ -1511,7 +1505,7 @@ export default function ChatPage() {
         playsInline
         style={{ display: 'none' }}
       />
-      
+
 
     </div>
   )
