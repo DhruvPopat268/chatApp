@@ -313,6 +313,27 @@ export default function ChatPage() {
         } catch (error) {
           console.log('⚠️ Could not set permissionChange listener');
         }
+
+        // Handle notification clicks
+        try {
+          OneSignal.Notifications.addEventListener('click', (event) => {
+            console.log('🔔 Notification clicked:', event);
+            
+            // Handle call notifications
+            if (event.notification.data?.type === 'call') {
+              const callData = event.notification.data;
+              console.log('📞 Call notification clicked:', callData);
+              
+              // Navigate to chat page
+              window.location.href = '/chat';
+              
+              // Optionally, you could store the call data and show a call back option
+              // For now, just redirect to chat
+            }
+          });
+        } catch (error) {
+          console.log('⚠️ Could not set notification click listener');
+        }
   
       } catch (error) {
         console.error('❌ OneSignal init error:', error);
@@ -1342,19 +1363,6 @@ export default function ChatPage() {
             <div className="flex-1">
               <h2 className="text-lg font-semibold">Chat</h2>
             </div>
-            {/* Quick Add Friends Button */}
-            <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
-              <DialogTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  className="p-2 rounded-full hover:bg-gray-100"
-                  title="Add Friends"
-                >
-                  <UserPlus className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-            </Dialog>
           </div>
 
           {/* Contact header - Always visible */}

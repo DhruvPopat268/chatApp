@@ -64,6 +64,92 @@ async function validateOneSignalPlayerId(playerId) {
   }
 }
 
+// Function to send OneSignal call notification
+async function sendCallNotification(receiverId, callerId, callType, roomId) {
+  try {
+    const user = await User.findById(receiverId);
+    const playerId = user?.oneSignalPlayerId;
+
+    if (!playerId) {
+      console.log('No OneSignal playerId found for user', receiverId, '. User may not have subscribed to notifications.');
+      return false;
+    }
+
+    console.log('Found playerId for user', receiverId, ':', playerId);
+    
+    // Check if OneSignal environment variables are set
+    if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) {
+      console.error('OneSignal environment variables not configured');
+      return false;
+    }
+    
+    const caller = await User.findById(callerId);
+    const callTypeText = callType === 'video' ? 'Video Call' : 'Voice Call';
+    
+    console.log('Sending OneSignal call notification with app_id:', process.env.ONESIGNAL_APP_ID);
+    console.log('Sending OneSignal call notification to player_id:', playerId);
+    
+    const notificationResponse = await axios.post('https://onesignal.com/api/v1/notifications', {
+      app_id: process.env.ONESIGNAL_APP_ID,
+      include_player_ids: [playerId],
+      headings: { en: `${caller?.username || 'Someone'} is calling` },
+      contents: { en: `Incoming ${callTypeText}` },
+      url: '/chat',
+      data: {
+        type: 'call',
+        callType: callType,
+        callerId: callerId,
+        receiverId: receiverId,
+        roomId: roomId,
+        callerName: caller?.username || 'Unknown'
+      },
+      // Add call-specific styling
+      chrome_web_icon: callType === 'video' ? 'https://cdn-icons-png.flaticon.com/512/2991/2991110.png' : 'https://cdn-icons-png.flaticon.com/512/455/455705.png',
+      priority: 10, // High priority for calls
+      sound: 'default' // Play notification sound
+    }, {
+      headers: {
+        'Authorization': `Basic ${process.env.ONESIGNAL_REST_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // Check if the notification was actually sent successfully
+    if (notificationResponse.data.id === '' || notificationResponse.data.errors) {
+      console.error('OneSignal call notification failed for user', receiverId, ':', notificationResponse.data);
+      
+      // If the player is not subscribed, clear the invalid playerId
+      if (notificationResponse.data.errors && notificationResponse.data.errors.includes('All included players are not subscribed')) {
+        console.log('Clearing invalid playerId for user', receiverId);
+        try {
+          await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+          console.log('Invalid playerId cleared for user', receiverId);
+        } catch (clearError) {
+          console.error('Error clearing invalid playerId:', clearError);
+        }
+      }
+      return false;
+    } else {
+      console.log('OneSignal call notification sent successfully to user', receiverId, 'with ID:', notificationResponse.data.id);
+      return true;
+    }
+  } catch (err) {
+    console.error('OneSignal call notification error for user', receiverId, ':', err.response?.data || err.message);
+    
+    // If the error is about invalid player ID, clear it
+    if (err.response?.data?.errors && err.response.data.errors.includes('All included players are not subscribed')) {
+      console.log('Player ID appears to be invalid. Clearing it for user', receiverId);
+      try {
+        await User.updateOne({ _id: receiverId }, { $unset: { oneSignalPlayerId: 1 } });
+        console.log('Invalid playerId cleared for user', receiverId);
+      } catch (clearError) {
+        console.error('Error clearing invalid playerId:', clearError);
+      }
+    }
+    return false;
+  }
+}
+
 // Save OneSignal player ID for user
 app.post('/api/save-onesignal-id', async (req, res) => {
   try {
@@ -417,17 +503,23 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC Call Signaling
-  socket.on('start_call', (data) => {
+  socket.on('start_call', async (data) => {
     const { receiverId, callType, roomId } = data;
     const receiverSocketId = connectedUsers.get(receiverId);
 
     if (receiverSocketId) {
+      // User is online, send via Socket.IO
       io.to(receiverSocketId).emit('incoming_call', {
         callerId: socket.userId,
         receiverId,
         callType,
         roomId
       });
+    } else {
+      // User is offline, send push notification via OneSignal
+      console.log('User', receiverId, 'is not connected. Attempting to send call notification via OneSignal.');
+      
+      await sendCallNotification(receiverId, socket.userId, callType, roomId);
     }
   });
 
@@ -564,6 +656,34 @@ app.post('/api/debug/test-notification/:userId', async (req, res) => {
       error: 'Test notification failed', 
       details: error.response?.data || error.message 
     });
+  }
+});
+
+// Debug endpoint to test OneSignal notification directly
+app.post('/api/debug/test-call-notification', async (req, res) => {
+  try {
+    const { receiverId, callerId, callType } = req.body;
+    
+    if (!receiverId || !callerId || !callType) {
+      return res.status(400).json({ error: 'Missing required fields: receiverId, callerId, callType' });
+    }
+
+    const roomId = 'test-room-' + Date.now();
+    const success = await sendCallNotification(receiverId, callerId, callType, roomId);
+    
+    res.json({
+      success,
+      message: success ? 'Call notification sent successfully' : 'Failed to send call notification',
+      testData: {
+        receiverId,
+        callerId,
+        callType,
+        roomId
+      }
+    });
+  } catch (error) {
+    console.error('Test call notification error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
