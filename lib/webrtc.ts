@@ -25,8 +25,7 @@ class WebRTCManager {
   private localStream: MediaStream | null = null
   private remoteStream: MediaStream | null = null
   private onCallStateChange: ((state: CallState) => void) | null = null
-  private ringtone: HTMLAudioElement | null = null
-  private connectionSound: HTMLAudioElement | null = null
+  // Removed ringtone and connectionSound logic
   private callStartTime: number = 0
   private currentCallState: CallState = {
     isIncoming: false,
@@ -54,14 +53,14 @@ class WebRTCManager {
       console.log('Incoming call:', data)
       this.currentCallState.isIncoming = true
       this.currentCallState.callData = data
-      this.playRingtone()
+      // Removed this.playRingtone()
       this.notifyStateChange()
     })
 
     // Handle call accepted
     this.socket.on('call_accepted', async (data: CallData) => {
       console.log('Call accepted:', data)
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.currentCallState.isOutgoing = false
       this.currentCallState.callData = data
       
@@ -85,14 +84,14 @@ class WebRTCManager {
     // Handle call rejected
     this.socket.on('call_rejected', () => {
       console.log('Call rejected')
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.resetCallState()
     })
 
     // Handle call ended
     this.socket.on('call_ended', () => {
       console.log('Call ended')
-      this.stopRingtone()
+      // Removed this.stopRingtone()
       this.endCall()
     })
 
@@ -189,7 +188,7 @@ class WebRTCManager {
         console.log('WebRTC connection established successfully')
         this.currentCallState.isConnected = true
         this.callStartTime = Date.now()
-        this.playConnectionSound()
+        // Removed this.playConnectionSound()
         
         // Delay state notification to prevent audio element re-render issues
         setTimeout(() => {
@@ -230,126 +229,358 @@ class WebRTCManager {
     }
   }
 
+  // Check if devices are available
+  private async checkDeviceAvailability(): Promise<{ audio: boolean; video: boolean }> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(device => device.kind === 'audioinput');
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      return {
+        audio: audioDevices.length > 0,
+        video: videoDevices.length > 0
+      };
+    } catch (error) {
+      console.error('Error checking device availability:', error);
+      return { audio: false, video: false };
+    }
+  }
+
+  // Request permissions and get user media with fallback
+  private async getUserMediaWithFallback(audio: boolean, video: boolean): Promise<MediaStream> {
+    try {
+      // First, check if we have permission
+      if (navigator.permissions) {
+        const audioPermission = audio ? await navigator.permissions.query({ name: 'microphone' as PermissionName }) : { state: 'granted' };
+        const videoPermission = video ? await navigator.permissions.query({ name: 'camera' as PermissionName }) : { state: 'granted' };
+        
+        if (audioPermission.state === 'denied' || videoPermission.state === 'denied') {
+          throw new Error('Camera or microphone permission denied');
+        }
+      }
+
+      // Check device availability
+      const deviceAvailability = await this.checkDeviceAvailability();
+      
+      // Adjust constraints based on available devices
+      const constraints: MediaStreamConstraints = {
+        audio: audio && deviceAvailability.audio,
+        video: video && deviceAvailability.video
+      };
+
+      console.log('Requesting media with constraints:', constraints);
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Media stream obtained successfully');
+      
+      return stream;
+    } catch (error) {
+      console.error('Error getting user media:', error);
+      
+      // Try fallback with audio only
+      if (video && audio) {
+        console.log('Trying fallback with audio only...');
+        try {
+          const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true, 
+            video: false 
+          });
+          console.log('Audio-only fallback successful');
+          return audioOnlyStream;
+        } catch (audioError) {
+          console.error('Audio-only fallback also failed:', audioError);
+        }
+      }
+      
+      throw error;
+    }
+  }
+
+  // Check device permissions and availability
+  async checkDevicePermissions(): Promise<{ audio: boolean; video: boolean; message: string }> {
+    try {
+      const deviceAvailability = await this.checkDeviceAvailability();
+      
+      if (!deviceAvailability.audio && !deviceAvailability.video) {
+        return {
+          audio: false,
+          video: false,
+          message: 'No microphone or camera found. Please connect devices and refresh the page.'
+        };
+      }
+
+      let audioPermission = 'granted';
+      let videoPermission = 'granted';
+
+      // Check permissions if available
+      if (navigator.permissions) {
+        try {
+          if (deviceAvailability.audio) {
+            const audioPerm = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+            audioPermission = audioPerm.state;
+          }
+          if (deviceAvailability.video) {
+            const videoPerm = await navigator.permissions.query({ name: 'camera' as PermissionName });
+            videoPermission = videoPerm.state;
+          }
+        } catch (error) {
+          console.log('Permission query not supported, assuming granted');
+        }
+      }
+
+      const hasAudio = deviceAvailability.audio && audioPermission === 'granted';
+      const hasVideo = deviceAvailability.video && videoPermission === 'granted';
+
+      let message = '';
+      if (!hasAudio && !hasVideo) {
+        message = 'No microphone or camera access. Please allow access to these devices.';
+      } else if (!hasAudio) {
+        message = 'No microphone access. Voice calls will not work.';
+      } else if (!hasVideo) {
+        message = 'No camera access. Video calls will not work.';
+      } else {
+        message = 'Devices ready for calls.';
+      }
+
+      return {
+        audio: hasAudio,
+        video: hasVideo,
+        message
+      };
+    } catch (error) {
+      console.error('Error checking device permissions:', error);
+      return {
+        audio: false,
+        video: false,
+        message: 'Error checking device permissions. Please refresh the page.'
+      };
+    }
+  }
+
+  // Test device access before making calls
+  async testDeviceAccess(audio: boolean, video: boolean): Promise<boolean> {
+    try {
+      const permissions = await this.checkDevicePermissions();
+      
+      if (audio && !permissions.audio) {
+        alert('Microphone access required for voice calls. ' + permissions.message);
+        return false;
+      }
+      
+      if (video && !permissions.video) {
+        alert('Camera access required for video calls. ' + permissions.message);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error testing device access:', error);
+      alert('Error testing device access. Please check your microphone and camera.');
+      return false;
+    }
+  }
+
   async startVoiceCall(receiverId: string): Promise<boolean> {
     try {
+      console.log('Starting voice call...');
+      
+      // Test device access first
+      const hasAccess = await this.testDeviceAccess(true, false);
+      if (!hasAccess) {
+        return false;
+      }
+      
       // Always create a new peer connection for each call
       this.initializePeerConnection();
-      // Get user media
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false
-      })
+      
+      // Get user media with proper error handling
+      this.localStream = await this.getUserMediaWithFallback(true, false);
+      
+      if (!this.localStream) {
+        throw new Error('Failed to get audio stream');
+      }
 
       // Add local stream to peer connection
       this.localStream.getTracks().forEach(track => {
-        this.peerConnection?.addTrack(track, this.localStream!)
-      })
+        if (this.peerConnection && this.peerConnection.signalingState !== 'closed') {
+          this.peerConnection.addTrack(track, this.localStream!);
+          console.log('Added audio track to peer connection');
+        }
+      });
 
       // Update call state
-      this.currentCallState.isOutgoing = true
-      this.currentCallState.localStream = this.localStream
+      this.currentCallState.isOutgoing = true;
+      this.currentCallState.localStream = this.localStream;
       this.currentCallState.callData = {
         callerId: this.getCurrentUserId(),
         receiverId,
         callType: 'voice',
         roomId: this.generateRoomId()
-      }
+      };
 
       // Send call request
-      this.socket.emit('start_call', this.currentCallState.callData)
-      this.notifyStateChange()
+      this.socket.emit('start_call', this.currentCallState.callData);
+      this.notifyStateChange();
 
-      return true
+      console.log('Voice call started successfully');
+      return true;
     } catch (error) {
-      console.error('Error starting voice call:', error)
-      return false
+      console.error('Error starting voice call:', error);
+      
+      // Reset state on error
+      this.resetCallState();
+      
+      // Show user-friendly error message
+      if (error instanceof Error) {
+        if (error.name === 'NotFoundError') {
+          alert('No microphone found. Please connect a microphone and try again.');
+        } else if (error.name === 'NotAllowedError') {
+          alert('Microphone access denied. Please allow microphone access and try again.');
+        } else if (error.name === 'NotReadableError') {
+          alert('Microphone is already in use by another application. Please close other apps using the microphone.');
+        } else {
+          alert('Failed to start voice call: ' + error.message);
+        }
+      }
+      
+      return false;
     }
   }
 
   async startVideoCall(receiverId: string): Promise<boolean> {
     try {
+      console.log('Starting video call...');
+      
+      // Test device access first
+      const hasAccess = await this.testDeviceAccess(true, true);
+      if (!hasAccess) {
+        return false;
+      }
+      
       // Always create a new peer connection for each call
       this.initializePeerConnection();
-      // Get user media with video
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true
-      })
+      
+      // Get user media with proper error handling
+      this.localStream = await this.getUserMediaWithFallback(true, true);
+      
+      if (!this.localStream) {
+        throw new Error('Failed to get media stream');
+      }
 
       // Add local stream to peer connection
       this.localStream.getTracks().forEach(track => {
-        this.peerConnection?.addTrack(track, this.localStream!)
-      })
+        if (this.peerConnection && this.peerConnection.signalingState !== 'closed') {
+          this.peerConnection.addTrack(track, this.localStream!);
+          console.log('Added track to peer connection:', track.kind);
+        }
+      });
 
       // Update call state
-      this.currentCallState.isOutgoing = true
-      this.currentCallState.localStream = this.localStream
+      this.currentCallState.isOutgoing = true;
+      this.currentCallState.localStream = this.localStream;
       this.currentCallState.callData = {
         callerId: this.getCurrentUserId(),
         receiverId,
         callType: 'video',
         roomId: this.generateRoomId()
-      }
+      };
 
       // Send call request
-      this.socket.emit('start_call', this.currentCallState.callData)
-      this.notifyStateChange()
+      this.socket.emit('start_call', this.currentCallState.callData);
+      this.notifyStateChange();
 
-      return true
+      console.log('Video call started successfully');
+      return true;
     } catch (error) {
-      console.error('Error starting video call:', error)
-      return false
+      console.error('Error starting video call:', error);
+      
+      // Reset state on error
+      this.resetCallState();
+      
+      // Show user-friendly error message
+      if (error instanceof Error) {
+        if (error.name === 'NotFoundError') {
+          alert('No camera or microphone found. Please connect a camera and microphone and try again.');
+        } else if (error.name === 'NotAllowedError') {
+          alert('Camera or microphone access denied. Please allow camera and microphone access and try again.');
+        } else if (error.name === 'NotReadableError') {
+          alert('Camera or microphone is already in use by another application. Please close other apps using the camera or microphone.');
+        } else {
+          alert('Failed to start video call: ' + error.message);
+        }
+      }
+      
+      return false;
     }
   }
 
   async acceptCall(): Promise<boolean> {
     try {
-      if (!this.currentCallState.callData) return false
+      if (!this.currentCallState.callData) return false;
 
-      console.log('Accepting call...')
-      this.stopRingtone()
+      console.log('Accepting call...');
+      // Removed this.stopRingtone()
 
       // Always create a new peer connection for each call
       this.initializePeerConnection();
-      // Get user media
-      const mediaConstraints = this.currentCallState.callData.callType === 'video' 
-        ? { audio: true, video: true }
-        : { audio: true, video: false }
+      
+      // Get user media with proper error handling
+      const isVideoCall = this.currentCallState.callData.callType === 'video';
+      this.localStream = await this.getUserMediaWithFallback(true, isVideoCall);
+      
+      if (!this.localStream) {
+        throw new Error('Failed to get media stream');
+      }
 
-      this.localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
-      console.log('Local media stream obtained')
+      console.log('Local media stream obtained');
 
       // Add local stream to peer connection
       this.localStream.getTracks().forEach(track => {
         if (this.peerConnection && this.peerConnection.signalingState !== 'closed') {
-          this.peerConnection.addTrack(track, this.localStream!)
-          console.log('Added track to peer connection:', track.kind)
+          this.peerConnection.addTrack(track, this.localStream!);
+          console.log('Added track to peer connection:', track.kind);
         }
-      })
+      });
 
       // Accept the call FIRST before updating state
-      this.socket.emit('accept_call', this.currentCallState.callData)
-      console.log('Call acceptance signal sent')
+      this.socket.emit('accept_call', {
+        callerId: this.currentCallState.callData.callerId,
+        roomId: this.currentCallState.callData.roomId,
+        callType: this.currentCallState.callData.callType
+      });
 
-      // Update call state AFTER sending signal to prevent re-render issues
-      this.currentCallState.isIncoming = false
-      this.currentCallState.localStream = this.localStream
+      // Update call state
+      this.currentCallState.isIncoming = false;
+      this.currentCallState.localStream = this.localStream;
+      this.notifyStateChange();
 
-      // Delay state notification to prevent audio element re-render
-      setTimeout(() => {
-        this.notifyStateChange()
-      }, 200)
-
-      return true
+      console.log('Call accepted successfully');
+      return true;
     } catch (error) {
-      console.error('Error accepting call:', error)
-      this.resetCallState()
-      return false
+      console.error('Error accepting call:', error);
+      
+      // Reset state on error
+      this.resetCallState();
+      
+      // Show user-friendly error message
+      if (error instanceof Error) {
+        if (error.name === 'NotFoundError') {
+          alert('No microphone or camera found. Please connect the required devices and try again.');
+        } else if (error.name === 'NotAllowedError') {
+          alert('Microphone or camera access denied. Please allow access and try again.');
+        } else if (error.name === 'NotReadableError') {
+          alert('Microphone or camera is already in use by another application. Please close other apps using these devices.');
+        } else {
+          alert('Failed to accept call: ' + error.message);
+        }
+      }
+      
+      return false;
     }
   }
 
   rejectCall() {
-    this.stopRingtone()
+    // Removed this.stopRingtone()
     if (this.currentCallState.callData) {
       this.socket.emit('reject_call', this.currentCallState.callData)
     }
@@ -357,7 +588,7 @@ class WebRTCManager {
   }
 
   endCall() {
-    this.stopRingtone()
+    // Removed this.stopRingtone()
     if (this.currentCallState.callData) {
       this.socket.emit('end_call', this.currentCallState.callData)
     }
@@ -373,8 +604,7 @@ class WebRTCManager {
       this.localStream = null
     }
 
-    // Stop ringtone
-    this.stopRingtone()
+    // Removed ringtone logic
 
     // Reset call state
     this.currentCallState = {
@@ -503,22 +733,8 @@ class WebRTCManager {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   }
 
-  private playRingtone() {
-    // Skip ringtone for now to prevent call cutting
-    console.log('Ringtone disabled to prevent call issues')
-  }
-
-  private stopRingtone() {
-    if (this.ringtone) {
-      this.ringtone.pause()
-      this.ringtone.currentTime = 0
-    }
-  }
-
-  private playConnectionSound() {
-    // Skip connection sound for now to prevent call cutting
-    console.log('Connection sound disabled to prevent call issues')
-  }
+  // Removed playRingtone and stopRingtone methods
+  // Removed playConnectionSound method
 }
 
 export default WebRTCManager 

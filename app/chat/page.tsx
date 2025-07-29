@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
@@ -34,6 +34,9 @@ import {
   Save,
   X,
   Loader2,
+  Bell,
+  ChevronDown,
+  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -50,6 +53,15 @@ import socketManager from "@/lib/socket"
 import config from "@/lib/config"
 import WebRTCManager from "@/lib/webrtc"
 import type { CallState } from "@/lib/webrtc"
+import { useRouter } from 'next/navigation';
+
+// Dynamic import for OneSignal to prevent SSR issues
+let OneSignal: any = null;
+if (typeof window !== 'undefined') {
+  import('react-onesignal').then((module) => {
+    OneSignal = module.default;
+  });
+}
 
 interface Contact {
   id: string
@@ -118,38 +130,14 @@ const contacts: Contact[] = [
 ]
 
 const initialMessages: Message[] = [
-  {
-    id: "1",
-    senderId: "1",
-    content: "Hey there! How are you doing today?",
-    timestamp: "10:30 AM",
-    type: "text",
-  },
-  {
-    id: "2",
-    senderId: "me",
-    content: "I'm doing great! Just working on some projects.",
-    timestamp: "10:32 AM",
-    type: "text",
-  },
-  {
-    id: "3",
-    senderId: "1",
-    content: "That sounds awesome! I sent you some files earlier.",
-    timestamp: "10:35 AM",
-    type: "text",
-  },
-  {
-    id: "4",
-    senderId: "1",
-    content: "",
-    timestamp: "10:36 AM",
-    type: "image",
-  },
+
+
 ]
 
 export default function ChatPage() {
-  // All hooks must be declared before any early return
+  const router = useRouter();
+
+  // All state declarations first
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [newMessage, setNewMessage] = useState("")
@@ -163,7 +151,9 @@ export default function ChatPage() {
   const [editedUser, setEditedUser] = useState<CurrentUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false)
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
+  const isSendButtonClickedRef = useRef(false);
   const [searchedUsers, setSearchedUsers] = useState<ApiUser[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [userContacts, setUserContacts] = useState<Contact[]>([])
@@ -181,6 +171,16 @@ export default function ChatPage() {
     callData: null
   })
   const [incomingCallData, setIncomingCallData] = useState<any>(null)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  // All refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messageInputRef = useRef<HTMLInputElement>(null)
@@ -188,12 +188,165 @@ export default function ChatPage() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
-  const [isUploadingImage, setIsUploadingImage] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null);
-  // Add state for image preview modal
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Initialize user and contacts
+  // Authentication check useEffect
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const user = getCurrentUser();
+      if (!user && window.location.pathname !== '/login') {
+        router.push('/login');
+      }
+    }
+  }, [router]);
+
+  // Helper to get Subscription ID from IndexedDB
+  function getSubscriptionIdFromIndexedDB() {
+    return new Promise<string>((resolve, reject) => {
+      const request = indexedDB.open('ONE_SIGNAL_SDK_DB');
+
+      request.onerror = () => reject('❌ Failed to open IndexedDB');
+
+      request.onsuccess = () => {
+        const db = request.result;
+        const transaction = db.transaction(['subscriptions'], 'readonly');
+        const store = transaction.objectStore('subscriptions');
+        const getAllRequest = store.getAll();
+
+        getAllRequest.onsuccess = () => {
+          const subs = getAllRequest.result;
+          if (subs && subs.length > 0 && subs[0].id) {
+            resolve(subs[0].id); // ✅ Subscription ID (aka Player ID)
+          } else {
+            reject('❌ No subscription ID found in IndexedDB');
+          }
+        };
+
+        getAllRequest.onerror = () => reject('❌ Failed to read subscriptions');
+      };
+    });
+  }
+
+
+  const getAndSaveSubscriptionId = async () => {
+    try {
+      const subscriptionId = await getSubscriptionIdFromIndexedDB();
+      console.log('✅ Got Subscription ID from IndexedDB:', subscriptionId);
+      await saveSubscriptionId(subscriptionId);
+      setNotifEnabled(true);
+    } catch (e) {
+      console.error('❌ Failed to get or save Subscription ID:', e);
+      setNotifEnabled(false);
+    }
+  };
+
+
+  const saveSubscriptionId = async (subscriptionId: string) => {
+    if (!currentUser?.id) return;
+
+    try {
+      console.log('📦 Saving subscriptionId to backend:', subscriptionId);
+      const response = await fetch(`${config.getBackendUrl()}/api/save-onesignal-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: subscriptionId, userId: currentUser.id }) // keep playerId if backend expects it
+      });
+
+      if (response.ok) {
+        console.log('✅ Subscription ID saved successfully to backend');
+      } else {
+        console.error('❌ Failed to save Subscription ID:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ Error saving Subscription ID:', error);
+    }
+  };
+
+  // Push notification setup useEffect
+  useEffect(() => {
+    if (!currentUser?.id) return;
+  
+    const initializeOneSignal = async () => {
+      try {
+        if (!OneSignal) {
+          const module = await import('react-onesignal');
+          OneSignal = module.default;
+        }
+  
+        console.log('🚀 Initializing OneSignal...');
+        await OneSignal.init({
+          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID || '',
+          allowLocalhostAsSecureOrigin: true,
+          serviceWorkerPath: '/OneSignalSDKWorker.js',
+          serviceWorkerParam: { scope: '/' }
+        });
+  
+        console.log('✅ OneSignal initialized');
+  
+        await new Promise(resolve => setTimeout(resolve, 3000));
+  
+        if ('Notification' in window) {
+          const permission = Notification.permission;
+          console.log('🔔 Notification permission:', permission);
+  
+          if (permission === 'granted') {
+            await getAndSaveSubscriptionId();
+          } else if (permission === 'default') {
+            const result = await Notification.requestPermission();
+            console.log('🔔 Permission result:', result);
+            if (result === 'granted') {
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              await getAndSaveSubscriptionId();
+            }
+          }
+        }
+  
+        // Optional: event listener
+        try {
+          OneSignal.Notifications.addEventListener('permissionChange', async (permission: string) => {
+            console.log('🔄 Permission changed:', permission);
+            if (permission === 'granted') {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              await getAndSaveSubscriptionId();
+            } else {
+              setNotifEnabled(false);
+            }
+          });
+        } catch (error) {
+          console.log('⚠️ Could not set permissionChange listener');
+        }
+
+        // Handle notification clicks
+        try {
+          OneSignal.Notifications.addEventListener('click', (event: any) => {
+            console.log('🔔 Notification clicked:', event);
+            
+            // Handle call notifications
+            if (event.notification.data?.type === 'call') {
+              const callData = event.notification.data;
+              console.log('📞 Call notification clicked:', callData);
+              
+              // Navigate to chat page
+              window.location.href = '/chat';
+              
+              // Optionally, you could store the call data and show a call back option
+              // For now, just redirect to chat
+            }
+          });
+        } catch (error) {
+          console.log('⚠️ Could not set notification click listener');
+        }
+  
+      } catch (error) {
+        console.error('❌ OneSignal init error:', error);
+      }
+    };
+  
+    initializeOneSignal();
+  }, [currentUser?.id]);
+  
+  // App initialization useEffect
   useEffect(() => {
     const initializeApp = async () => {
       const user = getCurrentUser()
@@ -260,7 +413,7 @@ export default function ChatPage() {
     }
   }, [])
 
-  // Handle audio streams without causing re-renders
+  // Local audio stream useEffect
   useEffect(() => {
     if (localAudioRef.current && callState.localStream) {
       localAudioRef.current.srcObject = callState.localStream
@@ -276,6 +429,7 @@ export default function ChatPage() {
     }
   }, [callState.localStream])
 
+  // Remote audio stream useEffect
   useEffect(() => {
     if (remoteAudioRef.current && callState.remoteStream) {
       remoteAudioRef.current.srcObject = callState.remoteStream
@@ -291,6 +445,7 @@ export default function ChatPage() {
     }
   }, [callState.remoteStream])
 
+<<<<<<< HEAD
 
 
   // Search users from API
@@ -500,15 +655,373 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+=======
+  // Typing indicator useEffect
+  useEffect(() => {
+    if (!selectedContact || !currentUser) return;
+    let typingTimeout: NodeJS.Timeout;
+    const handleTyping = () => {
+      socketManager.sendTypingStart(selectedContact.id);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        socketManager.sendTypingStop(selectedContact.id);
+      }, 1500);
+    };
+    if (messageInputRef.current) {
+      messageInputRef.current.addEventListener('input', handleTyping);
+    }
+    return () => {
+      if (messageInputRef.current) {
+        messageInputRef.current.removeEventListener('input', handleTyping);
+      }
+      clearTimeout(typingTimeout);
+    };
+  }, [selectedContact, currentUser]);
+
+  // Request status useEffect
+  useEffect(() => {
+    if (selectedContact && socketManager.getSocket()) {
+      socketManager.getSocket()?.emit('request_status', { userId: selectedContact.id });
+    }
+  }, [selectedContact]);
+
+  // Socket event listeners useEffect
+  useEffect(() => {
+    if (!currentUser) return;
+    socketManager.onUserTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        setIsTyping(true);
+      }
+    });
+    socketManager.onUserStoppedTyping((data) => {
+      if (selectedContact && data.userId === selectedContact.id) {
+        setIsTyping(false);
+      }
+    });
+    // Listen for online/offline status
+    if (socketManager.getSocket()) {
+      socketManager.getSocket()?.on('user_status', (data) => {
+        if (selectedContact && data.userId === selectedContact.id) {
+          setContactStatus({ online: data.online, lastSeen: data.lastSeen });
+        }
+      });
+    }
+    return () => {
+      socketManager.removeAllListeners();
+      if (socketManager.getSocket()) {
+        socketManager.getSocket()?.off('user_status');
+      }
+    };
+  }, [selectedContact, currentUser]);
+
+  // Message handling useEffect
+  useEffect(() => {
+    if (!currentUser) return;
+    // Listen for new messages
+    socketManager.onNewMessage((message) => {
+      console.log('New message received:', message)
+
+      // Add message to the current conversation if it matches
+      if (selectedContact &&
+        (message.senderId._id === selectedContact.id || message.receiverId._id === selectedContact.id)) {
+        const newMessage: Message = {
+          id: message._id,
+          senderId: message.senderId._id === currentUser.id ? "me" : message.senderId._id,
+          content: message.content,
+          timestamp: new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: message.type,
+          fileName: message.fileName,
+          fileSize: message.fileSize,
+        }
+        setMessages(prev => [...prev, newMessage])
+      }
+
+      // Update contact's last message
+      setUserContacts(prev => prev.map(contact => {
+        if (contact.id === message.senderId._id) {
+          return {
+            ...contact,
+            lastMessage: message.content,
+            timestamp: "Just now",
+            unread: contact.unread + 1
+          }
+        }
+        return contact
+      }))
+    })
+
+    // Listen for message sent confirmation
+    socketManager.onMessageSent((message) => {
+      console.log('Message sent successfully:', message)
+    })
+
+    // Listen for message errors
+    socketManager.onMessageError((error) => {
+      console.error('Message error:', error)
+    })
+    return () => {
+      socketManager.removeAllListeners();
+    };
+  }, [currentUser, selectedContact]);
+
+  // Load messages useEffect
+  useEffect(() => {
+    if (selectedContact && currentUser) {
+      loadMessages(selectedContact.id)
+    }
+  }, [selectedContact?.id, currentUser?.id])
+
+  // Friend search useEffect
+  useEffect(() => {
+    if (!friendSearchQuery.trim()) {
+      setSearchedUsers([]);
+      return;
+    }
+    setIsSearching(true);
+    const url = `${config.getBackendUrl()}/api/auth/search?q=${encodeURIComponent(friendSearchQuery)}`;
+    console.log('Searching users with URL:', url);
+    fetch(url)
+      .then(res => {
+        if (!res.ok) {
+          console.error('User search API error:', res.status, res.statusText);
+          return [];
+        }
+        return res.json();
+      })
+      .then(users => {
+        setSearchedUsers(
+          users.filter((u: any) =>
+            u._id !== currentUser?.id &&
+            !userContacts.some(c => c.id === u._id)
+          )
+        );
+      })
+      .catch((err) => {
+        console.error('User search fetch error:', err);
+        setSearchedUsers([])
+      })
+      .finally(() => setIsSearching(false));
+  }, [friendSearchQuery, currentUser, userContacts]);
+
+  // Check notification status
+  useEffect(() => {
+    const checkNotificationStatus = async () => {
+      if (!currentUser?.id) return;
+
+      try {
+        // Ensure OneSignal is loaded
+        if (!OneSignal) {
+          const module = await import('react-onesignal');
+          OneSignal = module.default;
+        }
+
+        const isSubscribed = await OneSignal.Notifications.isPushSupported();
+        setNotifEnabled(isSubscribed);
+        console.log('Notification status checked:', isSubscribed);
+      } catch (error) {
+        console.error('Error checking notification status:', error);
+      }
+    };
+
+    // Check status after a delay to ensure OneSignal is initialized
+    const timer = setTimeout(checkNotificationStatus, 2000);
+    return () => clearTimeout(timer);
+  }, [currentUser?.id]);
+
+  // All other functions and logic below
+  const handleTyping = () => {
+    if (!selectedContact || !currentUser) return;
+    socketManager.sendTypingStart(selectedContact.id);
+    setTimeout(() => {
+      socketManager.sendTypingStop(selectedContact.id);
+    }, 1500);
+  };
+
+  const enableNotifications = async () => {
+    if (!currentUser?.id) return;
+
+    try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+
+      console.log('Requesting notification permission...');
+
+      // Request permission using browser API
+      const result = await Notification.requestPermission();
+      console.log('Permission result:', result);
+
+      if (result === 'granted') {
+        // Try to trigger OneSignal subscription
+        try {
+          console.log('Triggering OneSignal subscription...');
+          await OneSignal.showSlidedownPrompt();
+
+          // Wait for OneSignal to register
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await getAndSaveSubscriptionId();
+          await getAndSaveSubscriptionId();
+        } catch (error) {
+          console.log('OneSignal subscription failed, trying direct approach...');
+          // Wait for OneSignal to register
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          await getAndSaveSubscriptionId();
+        }
+      }
+    } catch (error) {
+      console.error('Error enabling notifications:', error);
+    }
+  };
+
+  // Handle input focus for mobile
+  const handleInputFocus = () => {
+    setIsKeyboardVisible(true);
+    setTimeout(() => {
+      scrollToBottom();
+    }, 100) // Reduced delay for faster response
+  }
+
+  const handleInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    // If send button was just clicked, don't close keyboard
+    if (isSendButtonClickedRef.current) {
+      return;
+    }
+    
+    // Check if the related target (what we're clicking on) is the send button
+    const relatedTarget = event.relatedTarget as HTMLElement;
+    
+    if (relatedTarget && sendButtonRef.current && sendButtonRef.current.contains(relatedTarget)) {
+      // Don't close keyboard if clicking on send button
+      return;
+    }
+    
+    // For other blur events, let the viewport change handler determine keyboard state
+    // This prevents keyboard from closing when clicking outside the input
+  }
+
+  // Handle viewport changes (keyboard open/close)
+  const handleViewportChange = useCallback(() => {
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      const { height: viewportHeight } = window.visualViewport;
+      const keyboardHeight = window.innerHeight - viewportHeight;
+      const isKeyboardOpen = keyboardHeight > 150;
+      setIsKeyboardVisible(isKeyboardOpen);
+      
+      // Update main container height to fit within viewport
+      const mainContainer = document.getElementById('chat-main-container');
+      if (mainContainer) {
+        mainContainer.style.height = `${viewportHeight}px`;
+        mainContainer.style.overflow = 'hidden'; // Prevent page scroll
+      }
+      
+      // Ensure footer is positioned above keyboard
+      const footer = document.querySelector('.fixed-footer') as HTMLElement;
+      if (footer) {
+        if (isKeyboardOpen) {
+          footer.style.bottom = `${keyboardHeight}px`;
+        } else {
+          footer.style.bottom = '0px';
+        }
+      }
+      
+      // Add/remove body class to prevent scrolling when keyboard is open
+      if (isKeyboardOpen) {
+        document.body.classList.add('keyboard-open');
+      } else {
+        document.body.classList.remove('keyboard-open');
+      }
+    }
+  }, []);
+
+  // Use useEffect to add the event listener
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Use visualViewport for more accurate keyboard detection
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', handleViewportChange);
+      }
+      window.addEventListener('resize', handleViewportChange);
+      window.addEventListener('orientationchange', handleViewportChange); // For landscape/portrait changes
+      return () => {
+        if (window.visualViewport) {
+          window.visualViewport.removeEventListener('resize', handleViewportChange);
+        }
+        window.removeEventListener('resize', handleViewportChange);
+        window.removeEventListener('orientationchange', handleViewportChange);
+        // Clean up body class
+        document.body.classList.remove('keyboard-open');
+      };
+    }
+  }, [handleViewportChange]);
+
+  // Cleanup effect for keyboard handling
+  useEffect(() => {
+    return () => {
+      // Cleanup when component unmounts
+      document.body.classList.remove('keyboard-open');
+      const mainContainer = document.getElementById('chat-main-container');
+      if (mainContainer) {
+        mainContainer.style.height = '100vh';
+        mainContainer.style.overflow = 'hidden';
+      }
+    };
+  }, []);
+
+  const sendMessage = () => {
+    if (!newMessage.trim() || !selectedContact || !currentUser) return;
+
+    // Set flag to prevent blur
+    isSendButtonClickedRef.current = true;
+
+    // Immediately refocus the input to prevent blur
+    if (messageInputRef.current) {
+      messageInputRef.current.focus();
+    }
+
+    // Send message via Socket.IO
+    socketManager.sendMessage(selectedContact.id, newMessage, "text");
+
+    // Add message to local state immediately for optimistic UI
+    const message: Message = {
+      id: Date.now().toString(),
+      senderId: "me",
+      content: newMessage,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      type: "text",
+    };
+
+    setMessages(prev => [...prev, message]);
+    setNewMessage("");
+
+    // Update contact's last message
+    setUserContacts(prev => prev.map(contact => {
+      if (contact.id === selectedContact.id) {
+        return {
+>>>>>>> 27dd29079bb12e96cf0048f599140a8c304f17be
           ...contact,
           lastMessage: newMessage,
           timestamp: "Just now",
           unread: 0
-        }
+        };
       }
-      return contact
-    }))
-  }
+      return contact;
+    }));
+
+    // Scroll to bottom immediately after sending
+    setTimeout(() => {
+      scrollToBottom();
+    }, 50);
+
+    // Reset flag and ensure input stays focused
+    setTimeout(() => {
+      isSendButtonClickedRef.current = false;
+      if (messageInputRef.current) {
+        messageInputRef.current.focus();
+      }
+    }, 100);
+  };
 
   const handleFileUpload = (type: "image" | "file") => {
     const message: Message = {
@@ -636,6 +1149,58 @@ export default function ChatPage() {
 
   const filteredContacts = userContacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ 
+          behavior, 
+          block: 'end',
+          inline: 'nearest'
+        });
+      }
+    }, 100); // Small delay to ensure DOM is updated
+  };
+
+  // Handle scroll events to show/hide scroll to bottom button
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLDivElement;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    
+    // Check if user is at the bottom
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
+    setIsAtBottom(isAtBottom);
+    
+    // Show scroll to bottom button if not at bottom
+    setShowScrollToBottom(!isAtBottom);
+    
+    // Reset new message count if user scrolls to bottom
+    if (isAtBottom) {
+      setNewMessageCount(0);
+    }
+  };
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      if (isAtBottom) {
+        scrollToBottom();
+      } else {
+        // Increment new message count if user is not at bottom
+        setNewMessageCount(prev => prev + 1);
+      }
+    }
+  }, [messages, isAtBottom]);
+
+  // Scroll to bottom when contact changes
+  useEffect(() => {
+    if (selectedContact) {
+      setTimeout(() => {
+        scrollToBottom('auto');
+      }, 300);
+    }
+  }, [selectedContact?.id]);
+
   // Early return for loading state must come after all hooks
   if (isLoading || !currentUser) {
     return (
@@ -732,18 +1297,70 @@ export default function ChatPage() {
     }
   }
 
+  const toggleSidebar = () => {
+    setIsSidebarOpen((prev) => !prev);
+  };
+
+  const forceOneSignalSubscription = async () => {
+    if (!currentUser?.id) return;
+    try {
+      // Ensure OneSignal is loaded
+      if (!OneSignal) {
+        const module = await import('react-onesignal');
+        OneSignal = module.default;
+      }
+      console.log('Forcing OneSignal subscription...');
+      await OneSignal.showSlidedownPrompt();
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      await getAndSaveSubscriptionId();
+      console.log('OneSignal subscription forced successfully.');
+    } catch (error) {
+      console.error('Error forcing OneSignal subscription:', error);
+    }
+  };
+
+  const testPlayerIdRetrieval = async () => {
+    if (!currentUser?.id) return;
+    try {
+      console.log('Testing playerId retrieval...');
+      // Wait a bit to ensure OneSignal is fully initialized
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await getAndSaveSubscriptionId();
+      console.log('PlayerId retrieval test completed.');
+    } catch (error) {
+      console.error('Error testing playerId retrieval:', error);
+    }
+  };
+
+  const manuallySetPlayerId = async () => {
+    if (!currentUser?.id) return;
+    try {
+      console.log('Manually setting playerId...');
+      // Based on your OneSignal dashboard, the ID is: b8139c77-7c08-4cc5-9afc-2a0310041d2b
+      const playerId = 'b8139c77-7c08-4cc5-9afc-2a0310041d2b';
+      await saveSubscriptionId(playerId);
+      setNotifEnabled(true);
+      console.log('PlayerId manually set successfully:', playerId);
+    } catch (error) {
+      console.error('Error manually setting playerId:', error);
+    }
+  };
+
+
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
       {/* Mobile Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-5 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
       <div
         className={cn(
-          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out z-30 md:z-auto relative",
-          isSidebarOpen ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto" : "w-0 md:w-12 overflow-hidden",
+          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out relative",
+          isSidebarOpen 
+            ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto z-10" 
+            : "w-0 md:w-12 overflow-hidden z-20 md:z-auto"
         )}
       >
         {/* Sidebar Toggle Button */}
@@ -752,7 +1369,7 @@ export default function ChatPage() {
           size="sm"
           onClick={toggleSidebar}
           className={cn(
-            "absolute top-4 z-40 transition-all duration-300 rounded-full h-8 w-8 p-0",
+            "absolute top-4 z-30 transition-all duration-300 rounded-full h-8 w-8 p-0",
             isSidebarOpen
               ? "right-4 hover:bg-gray-100"
               : "right-2 md:right-1 bg-blue-500 text-white hover:bg-blue-600 shadow-lg",
@@ -765,7 +1382,7 @@ export default function ChatPage() {
         <div
           className={cn(
             "transition-all duration-300 h-full",
-            isSidebarOpen ? "opacity-100" : "opacity-0 md:opacity-100",
+            isSidebarOpen ? "opacity-100 z-10" : "opacity-0 md:opacity-100",
           )}
         >
           {isSidebarOpen ? (
@@ -788,8 +1405,13 @@ export default function ChatPage() {
                   <div className="flex items-center space-x-2">
                     <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <UserPlus className="h-4 w-4" />
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                        >
+                          <UserPlus className="h-4 w-4 mr-1" />
+                          Add
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-md">
@@ -866,11 +1488,30 @@ export default function ChatPage() {
                           <User className="h-4 w-4 mr-2" />
                           My Profile
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
+                        {/* <DropdownMenuItem onClick={enableNotifications}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          {notifEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={getAndSaveSubscriptionId}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Test Get PlayerId
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={forceOneSignalSubscription}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Force OneSignal Subscription
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={testPlayerIdRetrieval}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Test PlayerId Retrieval
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={manuallySetPlayerId}>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Manually Set PlayerId
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator /> */}
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                           <LogOut className="h-4 w-4 mr-2" />
-                          Logout
-                        </DropdownMenuItem>
+                          Logout             </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -975,17 +1616,16 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div
-        ref={chatContainerRef}
-        className={cn("flex-1 flex flex-col relative", isKeyboardVisible && "pb-safe-area-inset-bottom")}
+      {/* Main Chat Container - Fixed height, no page scroll */}
+      <div 
+        id="chat-main-container"
+        className="flex-1 flex flex-col bg-white h-screen overflow-hidden"
         style={{
-          height:
-            isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
-              ? `${window.visualViewport.height}px`
-              : "100vh",
+          height: '100vh',
+          overflow: 'hidden'
         }}
       >
+<<<<<<< HEAD
         {/* Top Bar with Sidebar Toggle */}
         <div className="bg-white border-b border-gray-200 p-3 flex items-center space-x-3 flex-shrink-0">
           <Button
@@ -1076,107 +1716,255 @@ export default function ChatPage() {
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full p-4" viewportRef={scrollAreaRef}>
             <div className="space-y-4 pb-4">
+=======
+        {/* Sticky Header - Always at top */}
+        <div className="flex-shrink-0 px-2 py-1 bg-white border-b border-gray-200 shadow-sm z-40">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleSidebar}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Toggle sidebar"
+              >
+                <ChevronRight className="h-3 w-3" />
+              </Button>
+              <div className="flex flex-col">
+                <h2 className="font-medium text-xs text-gray-900">{selectedContact?.name}</h2>
+                <p className="text-xs text-gray-500">Last seen {selectedContact?.lastSeen}</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleCall('voice')}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Voice call"
+              >
+                <Phone className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleCall('video')}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Video call"
+              >
+                <Video className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="More options"
+              >
+                <MoreVertical className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Messages Area - Scrollable only, fixed height */}
+        <div className="flex-1 overflow-hidden relative min-h-0">
+          <ScrollArea 
+            ref={scrollAreaRef}
+            className="h-full px-2 pb-16"
+            onScroll={handleScroll}
+          >
+            <div className="space-y-1 pb-2">
+>>>>>>> 27dd29079bb12e96cf0048f599140a8c304f17be
               {isLoadingMessages ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                  <span className="text-sm text-gray-500">Loading messages...</span>
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span className="text-xs text-gray-500">Loading messages...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <span className="text-sm text-gray-500">No messages yet. Start a conversation!</span>
+                <div className="flex flex-col items-center justify-center py-4 text-center">
+                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+                    <MessageSquare className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <h3 className="text-xs font-medium text-gray-900 mb-1">No messages yet</h3>
+                  <p className="text-xs text-gray-500 max-w-sm">
+                    Start a conversation with {selectedContact?.name || 'your contact'} by sending your first message!
+                  </p>
                 </div>
               ) : (
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
+                    className={cn("flex mb-1", message.senderId === "me" ? "justify-end" : "justify-start")}
                   >
                     <div
                       className={cn(
-                        "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
-                        message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
+                        "max-w-[80%] px-2 py-1.5 rounded-xl shadow-sm",
+                        message.senderId === "me" 
+                          ? "bg-blue-500 text-white rounded-br-md" 
+                          : "bg-gray-100 text-gray-900 rounded-bl-md border border-gray-200"
                       )}
                     >
-                      {message.type === "text" && <p className="text-sm">{message.content}</p>}
+                      {message.type === "text" && (
+                        <p className="text-xs leading-relaxed break-words">{message.content}</p>
+                      )}
                       {message.type === "image" && message.content && (
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           <img
                             src={message.content}
                             alt="Shared image"
-                            className="rounded-lg max-w-full h-auto cursor-pointer"
-                            style={{ maxWidth: 240, maxHeight: 320 }}
+                            className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+                            style={{ maxWidth: 150, maxHeight: 200 }}
                             onClick={() => setPreviewImage(message.content)}
                           />
                         </div>
                       )}
                       {message.type === "file" && message.content && (
-                        <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-                          <File className="h-8 w-8 text-blue-500" />
-                          <div>
-                            <a href={message.content} target="_blank" rel="noopener noreferrer" className="text-sm font-medium underline">
+                        <div className="flex items-center space-x-1 p-1 bg-white bg-opacity-20 rounded-lg">
+                          <File className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <a 
+                              href={message.content} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-xs font-medium underline hover:no-underline block truncate"
+                            >
                               {message.fileName || 'Download file'}
                             </a>
-                            <p className="text-xs text-gray-500">{message.fileSize}</p>
+                            <p className="text-xs opacity-70">{message.fileSize}</p>
                           </div>
                         </div>
                       )}
-                      <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                      <p className={cn(
+                        "text-xs mt-0.5 opacity-70",
+                        message.senderId === "me" ? "text-right" : "text-left"
+                      )}>
+                        {message.timestamp}
+                      </p>
                     </div>
                   </div>
                 ))
               )}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} className="h-1" />
             </div>
           </ScrollArea>
+
+          {/* Scroll to Bottom Button */}
+          {!isAtBottom && (
+            <Button
+              onClick={() => {
+                scrollToBottom();
+                setNewMessageCount(0);
+              }}
+              className="fixed bottom-14 right-2 z-50 rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white p-1.5"
+              size="sm"
+            >
+              <ChevronDown className="h-4 w-4" />
+              {newMessageCount > 0 && (
+                <Badge className="ml-1 bg-red-500 text-white text-xs">
+                  {newMessageCount}
+                </Badge>
+              )}
+            </Button>
+          )}
         </div>
 
-        {/* Message Input - Pinned at bottom, above keyboard */}
-        <div
+        {/* Fixed Footer - Always visible and sticks above keyboard */}
+        <div 
           className={cn(
-            "bg-white border-t border-gray-200 p-4 flex-shrink-0 fixed bottom-0 left-0 right-0 z-30",
-            isKeyboardVisible && "pb-safe-area-inset-bottom"
+            "fixed-footer bg-white border-t border-gray-200 shadow-sm",
+            isSidebarOpen ? "z-0" : "z-50"
           )}
           style={{
-            paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
+            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)",
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            transform: "translateZ(0)",
+            willChange: "transform"
           }}
         >
-          <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm" onClick={handleImageButtonClick} disabled={isUploadingImage}>
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageChange}
-            />
-            <Button variant="ghost" size="sm" onClick={handleFileButtonClick} disabled={isUploadingImage}>
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <div className="flex-1 relative">
-              <Input
-                ref={messageInputRef}
-                placeholder="Type a message..."
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                onFocus={handleInputFocus}
-                className="pr-20"
-                style={{
-                  fontSize: "16px", // Prevents zoom on iOS
-                }}
+          <div className="px-2 py-1">
+            <div className="flex items-center space-x-1">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleImageButtonClick} 
+                disabled={isUploadingImage}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Send image"
+              >
+                <ImageIcon className="h-3 w-3" />
+              </Button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageChange}
               />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleFileButtonClick} 
+                disabled={isUploadingImage}
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                title="Send file"
+              >
+                <Paperclip className="h-3 w-3" />
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <div className="flex-1 relative">
+                <Input
+                  ref={messageInputRef}
+                  placeholder="Type a message..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
+                  className="pr-12 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs h-7"
+                  style={{
+                    fontSize: "16px", // Prevents zoom on iOS
+                  }}
+                />
+              </div>
+              <div 
+                className="flex-shrink-0"
+                onMouseDown={(e) => e.preventDefault()}
+                onTouchStart={(e) => e.preventDefault()}
+              >
+                <Button 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    sendMessage();
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    sendMessage();
+                  }}
+                  ref={sendButtonRef}
+                  size="sm" 
+                  disabled={isUploadingImage || !newMessage.trim()}
+                  className={cn(
+                    "p-1 rounded-full transition-all duration-200",
+                    newMessage.trim() 
+                      ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
+                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  )}
+                  title="Send message"
+                >
+                  <Send className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
-            <Button onClick={sendMessage} size="sm" disabled={isUploadingImage}>
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </div>
@@ -1505,7 +2293,10 @@ export default function ChatPage() {
         playsInline
         style={{ display: 'none' }}
       />
+<<<<<<< HEAD
 
+=======
+>>>>>>> 27dd29079bb12e96cf0048f599140a8c304f17be
 
     </div>
   )
