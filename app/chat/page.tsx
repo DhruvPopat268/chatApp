@@ -700,8 +700,18 @@ export default function ChatPage() {
       // Add/remove body class to prevent scrolling when keyboard is open
       if (isKeyboardOpen) {
         document.body.classList.add('keyboard-open');
+        // Ensure footer is positioned above keyboard
+        const footer = document.querySelector('.fixed-footer') as HTMLElement;
+        if (footer) {
+          footer.style.bottom = `${keyboardHeight}px`;
+        }
       } else {
         document.body.classList.remove('keyboard-open');
+        // Reset footer position when keyboard closes
+        const footer = document.querySelector('.fixed-footer') as HTMLElement;
+        if (footer) {
+          footer.style.bottom = '0px';
+        }
       }
       
       // Update main container height to account for keyboard
@@ -1481,7 +1491,7 @@ export default function ChatPage() {
         <div className="flex-1 overflow-hidden relative min-h-0">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="h-full px-2"
+            className="h-full px-2 pb-16"
             onScroll={handleScroll}
           >
             <div className="space-y-1 pb-2">
@@ -1578,14 +1588,20 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Sticky Footer - Always at bottom, moves above keyboard */}
+        {/* Fixed Footer - Always visible and sticks above keyboard */}
         <div 
           className={cn(
-            "sticky bottom-0 bg-white border-t border-gray-200 shadow-sm flex-shrink-0",
+            "fixed-footer bg-white border-t border-gray-200 shadow-sm",
             isSidebarOpen ? "z-0" : "z-50"
           )}
           style={{
-            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)"
+            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)",
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            transform: "translateZ(0)",
+            willChange: "transform"
           }}
         >
           <div className="px-2 py-1">

@@ -93,6 +93,19 @@ body {
   }
 }
 
+/* Fixed Footer Styles - Always visible and above keyboard */
+.fixed-footer {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  transform: translateZ(0) !important;
+  will-change: transform !important;
+  -webkit-transform: translateZ(0) !important;
+  -webkit-will-change: transform !important;
+  z-index: 50 !important;
+}
+
 /* Prevent body scroll when keyboard is open */
 body.keyboard-open {
   position: fixed;
@@ -101,10 +114,24 @@ body.keyboard-open {
   overflow: hidden;
 }
 
+/* Ensure messages don't get hidden behind footer */
+.messages-container {
+  padding-bottom: 4rem !important; /* 64px for footer height */
+}
+
 /* Mobile-specific fixes */
 @media (max-width: 768px) {
   /* Prevent pull-to-refresh from affecting layout */
   body {
     overscroll-behavior-y: contain;
+  }
+  
+  /* Ensure footer is always visible on mobile */
+  .fixed-footer {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 50 !important;
   }
 }
