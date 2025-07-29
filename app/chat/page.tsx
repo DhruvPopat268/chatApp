@@ -673,7 +673,9 @@ export default function ChatPage() {
     if (typeof window !== 'undefined' && window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleViewportChange);
       return () => {
-        window.visualViewport.removeEventListener('resize', handleViewportChange);
+        if (window.visualViewport) {
+          window.visualViewport.removeEventListener('resize', handleViewportChange);
+        }
       };
     }
   }, []);
@@ -1030,7 +1032,7 @@ export default function ChatPage() {
       console.log('Manually setting playerId...');
       // Based on your OneSignal dashboard, the ID is: b8139c77-7c08-4cc5-9afc-2a0310041d2b
       const playerId = 'b8139c77-7c08-4cc5-9afc-2a0310041d2b';
-      await savePlayerId(playerId);
+      await saveSubscriptionId(playerId);
       setNotifEnabled(true);
       console.log('PlayerId manually set successfully:', playerId);
     } catch (error) {
@@ -1043,13 +1045,13 @@ export default function ChatPage() {
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
       {/* Mobile Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-10 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
       <div
         className={cn(
-          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out z-30 md:z-auto relative",
+          "bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out z-20 md:z-auto relative",
           isSidebarOpen ? "w-80 fixed md:relative inset-y-0 left-0 md:left-auto" : "w-0 md:w-12 overflow-hidden",
         )}
       >
@@ -1059,7 +1061,7 @@ export default function ChatPage() {
           size="sm"
           onClick={toggleSidebar}
           className={cn(
-            "absolute top-4 z-40 transition-all duration-300 rounded-full h-8 w-8 p-0",
+            "absolute top-4 z-30 transition-all duration-300 rounded-full h-8 w-8 p-0",
             isSidebarOpen
               ? "right-4 hover:bg-gray-100"
               : "right-2 md:right-1 bg-blue-500 text-white hover:bg-blue-600 shadow-lg",
@@ -1095,8 +1097,13 @@ export default function ChatPage() {
                   <div className="flex items-center space-x-2">
                     <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <UserPlus className="h-4 w-4" />
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                        >
+                          <UserPlus className="h-4 w-4 mr-1" />
+                          Add
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-md">
@@ -1173,7 +1180,7 @@ export default function ChatPage() {
                           <User className="h-4 w-4 mr-2" />
                           My Profile
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={enableNotifications}>
+                        {/* <DropdownMenuItem onClick={enableNotifications}>
                           <Bell className="mr-2 h-4 w-4" />
                           {notifEnabled ? 'Notifications Enabled' : 'Enable Notifications'}
                         </DropdownMenuItem>
@@ -1193,10 +1200,10 @@ export default function ChatPage() {
                           <Bell className="mr-2 h-4 w-4" />
                           Manually Set PlayerId
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
+                        <DropdownMenuSeparator /> */}
                         <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                           <LogOut className="h-4 w-4 mr-2" />
-                          getAndSaveSubscriptionId             </DropdownMenuItem>
+                          Logout             </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1304,15 +1311,18 @@ export default function ChatPage() {
       {/* Main Chat Area */}
       <div
         ref={chatContainerRef}
-        className="flex-1 flex flex-col relative"
+        className={cn(
+          "flex-1 flex flex-col relative",
+          isSidebarOpen && "md:ml-0" // Add margin on desktop when sidebar is open
+        )}
         style={{
           height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
-            ? `${window.visualViewport.height}px`
+            ? `${window.visualViewport?.height || window.innerHeight}px`
             : "100vh",
         }}
       >
-        {/* Sticky Header - Always visible */}
-        <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95">
+        {/* Sticky Header - Always visible with higher z-index */}
+        <div className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95">
           {/* Top Bar with Sidebar Toggle */}
           <div className="p-3 flex items-center space-x-3 flex-shrink-0">
             <Button
@@ -1326,6 +1336,19 @@ export default function ChatPage() {
             <div className="flex-1">
               <h2 className="text-lg font-semibold">Chat</h2>
             </div>
+            {/* Quick Add Friends Button */}
+            <Dialog open={isAddFriendOpen} onOpenChange={setIsAddFriendOpen}>
+              <DialogTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  className="p-2 rounded-full hover:bg-gray-100"
+                  title="Add Friends"
+                >
+                  <UserPlus className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+            </Dialog>
           </div>
 
           {/* Contact header - Always visible */}
@@ -1409,11 +1432,11 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Messages - Scrollable area with proper top spacing */}
+        {/* Messages - Scrollable area with proper spacing for sticky footer */}
         <div className="flex-1 overflow-hidden relative">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="h-full p-4 pb-28" // Increased bottom padding for better spacing
+            className="h-full p-4 pb-32" // Increased bottom padding to account for sticky footer
             onScroll={handleScroll}
           >
             <div className="space-y-4 pb-4">
@@ -1497,7 +1520,7 @@ export default function ChatPage() {
                 scrollToBottom();
                 setNewMessageCount(0);
               }}
-              className="absolute bottom-20 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
+              className="absolute bottom-24 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
               size="sm"
             >
               <ChevronDown className="h-5 w-5" />
@@ -1510,18 +1533,28 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Message Input - Fixed at bottom but with proper spacing */}
+        {/* Message Input - Sticky Footer - Always visible */}
         <div
           className={cn(
-            "bg-white border-t border-gray-200 p-4 flex-shrink-0 z-30 shadow-lg",
-            isKeyboardVisible ? "fixed bottom-0 left-0 right-0 pb-safe-area-inset-bottom" : "relative"
+            "sticky bottom-0 bg-white border-t border-gray-200 p-4 flex-shrink-0 z-50 shadow-lg backdrop-blur-sm bg-white/95",
+            isKeyboardVisible && "pb-safe-area-inset-bottom"
           )}
           style={{
             paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
           }}
         >
+          {/* Subtle top border indicator */}
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 opacity-50"></div>
+          
           <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="sm" onClick={handleImageButtonClick} disabled={isUploadingImage}>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleImageButtonClick} 
+              disabled={isUploadingImage}
+              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+              title="Send image"
+            >
               <ImageIcon className="h-4 w-4" />
             </Button>
             <input
@@ -1531,7 +1564,14 @@ export default function ChatPage() {
               className="hidden"
               onChange={handleImageChange}
             />
-            <Button variant="ghost" size="sm" onClick={handleFileButtonClick} disabled={isUploadingImage}>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleFileButtonClick} 
+              disabled={isUploadingImage}
+              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+              title="Send file"
+            >
               <Paperclip className="h-4 w-4" />
             </Button>
             <input
@@ -1549,13 +1589,24 @@ export default function ChatPage() {
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                 onFocus={handleInputFocus}
                 onBlur={handleInputBlur}
-                className="pr-20"
+                className="pr-20 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 style={{
                   fontSize: "16px", // Prevents zoom on iOS
                 }}
               />
             </div>
-            <Button onClick={sendMessage} size="sm" disabled={isUploadingImage}>
+            <Button 
+              onClick={sendMessage} 
+              size="sm" 
+              disabled={isUploadingImage || !newMessage.trim()}
+              className={cn(
+                "p-2 rounded-full transition-all duration-200",
+                newMessage.trim() 
+                  ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
+                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
+              )}
+              title="Send message"
+            >
               <Send className="h-4 w-4" />
             </Button>
           </div>
