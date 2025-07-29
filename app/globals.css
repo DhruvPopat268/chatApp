@@ -93,18 +93,6 @@ body {
   }
 }
 
-/* Fixed Footer Styles */
-.fixed-footer {
-  position: fixed !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  transform: translateZ(0) !important;
-  will-change: transform !important;
-  -webkit-transform: translateZ(0) !important;
-  -webkit-will-change: transform !important;
-}
-
 /* Prevent body scroll when keyboard is open */
 body.keyboard-open {
   position: fixed;
@@ -113,28 +101,10 @@ body.keyboard-open {
   overflow: hidden;
 }
 
-/* Ensure proper spacing for ultra-compact footer */
-.messages-container {
-  padding-bottom: 2rem !important; /* 32px for ultra-compact footer height */
-}
-
 /* Mobile-specific fixes */
 @media (max-width: 768px) {
-  .fixed-footer {
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    z-index: 50 !important;
-  }
-  
-  /* Prevent pull-to-refresh from affecting footer */
+  /* Prevent pull-to-refresh from affecting layout */
   body {
     overscroll-behavior-y: contain;
-  }
-  
-  /* Ultra-compact for mobile screens */
-  .messages-container {
-    padding-bottom: 1.5rem !important; /* 24px for ultra-compact mobile */
   }
 }

@@ -1388,17 +1388,17 @@ export default function ChatPage() {
         ref={chatContainerRef}
         id="chat-main-container"
         className={cn(
-          "flex-1 flex flex-col bg-white",
+          "flex-1 flex flex-col bg-white h-screen",
           isSidebarOpen ? "z-0" : "z-10"
         )}
       >
-        {/* Ultra-Compact Header - Must fit on single screen */}
+        {/* Sticky Header - Always visible at top */}
         <div className={cn(
-          "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
+          "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95 flex-shrink-0",
           isSidebarOpen ? "z-0" : "z-40"
         )}>
           {/* Minimal header - essential info only */}
-          <div className="px-2 py-1 flex items-center justify-between flex-shrink-0">
+          <div className="px-2 py-1 flex items-center justify-between">
             <Button
               variant="ghost"
               size="sm"
@@ -1477,14 +1477,14 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Messages - Ultra-compact for single screen view */}
-        <div className="flex-1 overflow-hidden relative">
+        {/* Messages Area - Takes remaining space between header and footer */}
+        <div className="flex-1 overflow-hidden relative min-h-0">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="messages-container flex-1 px-2 pb-12"
+            className="h-full px-2"
             onScroll={handleScroll}
           >
-            <div className="space-y-1 pb-1">
+            <div className="space-y-1 pb-2">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center py-2">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -1578,20 +1578,14 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Fixed Footer - Ultra-compact for single screen */}
+        {/* Sticky Footer - Always at bottom, moves above keyboard */}
         <div 
           className={cn(
-            "fixed-footer bg-white border-t border-gray-200 shadow-sm",
+            "sticky bottom-0 bg-white border-t border-gray-200 shadow-sm flex-shrink-0",
             isSidebarOpen ? "z-0" : "z-50"
           )}
           style={{
-            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)",
-            position: "fixed",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            transform: "translateZ(0)", // Force hardware acceleration
-            willChange: "transform" // Optimize for animations
+            paddingBottom: isKeyboardVisible ? "0px" : "env(safe-area-inset-bottom, 0px)"
           }}
         >
           <div className="px-2 py-1">
