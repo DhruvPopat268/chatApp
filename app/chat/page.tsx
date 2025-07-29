@@ -35,6 +35,8 @@ import {
   X,
   Loader2,
   Bell,
+  ChevronDown,
+  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -172,6 +174,9 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [contactStatus, setContactStatus] = useState<{ online: boolean, lastSeen?: number }>({ online: false });
   const [notifEnabled, setNotifEnabled] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // All refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -181,6 +186,7 @@ export default function ChatPage() {
   const localAudioRef = useRef<HTMLAudioElement>(null)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Authentication check useEffect
   useEffect(() => {
@@ -636,6 +642,7 @@ export default function ChatPage() {
 
   // Handle input focus for mobile
   const handleInputFocus = () => {
+    setIsKeyboardVisible(true);
     setTimeout(() => {
       if (messageInputRef.current) {
         messageInputRef.current.scrollIntoView({
@@ -644,8 +651,32 @@ export default function ChatPage() {
           inline: "nearest",
         })
       }
+      // Scroll to bottom when keyboard appears
+      scrollToBottom();
     }, 300) // Delay to allow keyboard animation
   }
+
+  const handleInputBlur = () => {
+    setIsKeyboardVisible(false);
+  }
+
+  // Handle viewport changes for mobile keyboard
+  useEffect(() => {
+    const handleViewportChange = () => {
+      if (typeof window !== 'undefined' && window.visualViewport) {
+        const viewport = window.visualViewport;
+        const isKeyboardOpen = viewport.height < window.innerHeight * 0.8;
+        setIsKeyboardVisible(isKeyboardOpen);
+      }
+    };
+
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportChange);
+      return () => {
+        window.visualViewport.removeEventListener('resize', handleViewportChange);
+      };
+    }
+  }, []);
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedContact || !currentUser) return
@@ -677,6 +708,11 @@ export default function ChatPage() {
       }
       return contact
     }))
+
+    // Scroll to bottom immediately after sending
+    setTimeout(() => {
+      scrollToBottom();
+    }, 50);
   }
 
   const handleFileUpload = (type: "image" | "file") => {
@@ -804,6 +840,58 @@ export default function ChatPage() {
   }
 
   const filteredContacts = userContacts.filter((contact) => contact.name.toLowerCase().includes(searchQuery.toLowerCase()))
+
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ 
+          behavior, 
+          block: 'end',
+          inline: 'nearest'
+        });
+      }
+    }, 100); // Small delay to ensure DOM is updated
+  };
+
+  // Handle scroll events to show/hide scroll to bottom button
+  const handleScroll = (event: any) => {
+    const scrollElement = event.target;
+    const scrollTop = scrollElement.scrollTop;
+    const scrollHeight = scrollElement.scrollHeight;
+    const clientHeight = scrollElement.clientHeight;
+    
+    // Show scroll to bottom button if user has scrolled up more than 200px from bottom
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 200;
+    setIsAtBottom(isNearBottom);
+    setShowScrollToBottom(!isNearBottom);
+    
+    // Reset new message count when user scrolls to bottom
+    if (isNearBottom) {
+      setNewMessageCount(0);
+    }
+  };
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      if (isAtBottom) {
+        scrollToBottom();
+      } else {
+        // Increment new message count if user is not at bottom
+        setNewMessageCount(prev => prev + 1);
+      }
+    }
+  }, [messages, isAtBottom]);
+
+  // Scroll to bottom when contact changes
+  useEffect(() => {
+    if (selectedContact) {
+      setTimeout(() => {
+        scrollToBottom('auto');
+      }, 300);
+    }
+  }, [selectedContact?.id]);
 
   // Early return for loading state must come after all hooks
   if (isLoading || !currentUser) {
@@ -1216,109 +1304,118 @@ export default function ChatPage() {
       {/* Main Chat Area */}
       <div
         ref={chatContainerRef}
-        className={cn("flex-1 flex flex-col relative", isKeyboardVisible && "pb-safe-area-inset-bottom")}
+        className="flex-1 flex flex-col relative"
         style={{
-          height:
-            isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
-              ? `${window.visualViewport.height}px`
-              : "100vh",
+          height: isKeyboardVisible && typeof window !== "undefined" && window.visualViewport
+            ? `${window.visualViewport.height}px`
+            : "100vh",
         }}
       >
-        {/* Top Bar with Sidebar Toggle */}
-        <div className="bg-white border-b border-gray-200 p-3 flex items-center space-x-3 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleSidebar}
-            className="p-2 rounded-full hover:bg-gray-100"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold">Chat</h2>
-          </div>
-        </div>
-
-        {/* Contact header - Pinned */}
-        <div className={cn(
-          "bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0 transition-all duration-300",
-          isKeyboardVisible ? "fixed top-0 left-0 right-0 z-40 shadow-md" : "relative z-10"
-        )}
-          style={isKeyboardVisible ? { width: '100vw' } : {}}>
-          <div className="flex items-center space-x-3">
-            <Avatar>
-              <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
-              <AvatarFallback>
-                {selectedContact?.name
-                  ? selectedContact.name.split(" ").map((n) => n[0]).join("")
-                  : "?"}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
-              <p className="text-sm text-gray-500">
-                {isTyping
-                  ? "Typing..."
-                  : contactStatus.online
-                    ? "Online"
-                    : contactStatus.lastSeen
-                      ? `Last seen ${Math.round((Date.now() - contactStatus.lastSeen) / 60000)} min ago`
-                      : ""}
-              </p>
+        {/* Sticky Header - Always visible */}
+        <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95">
+          {/* Top Bar with Sidebar Toggle */}
+          <div className="p-3 flex items-center space-x-3 flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleSidebar}
+              className="p-2 rounded-full hover:bg-gray-100"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold">Chat</h2>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            {/* Voice Call Button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-2 rounded-full hover:bg-gray-100"
-              onClick={() => {
-                if (webrtcManager && selectedContact) {
-                  webrtcManager.startVoiceCall(selectedContact.id)
-                }
-              }}
-              disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
-            >
-              <Phone className="h-4 w-4" />
-            </Button>
-            {/* Video Call Button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-2 rounded-full hover:bg-gray-100"
-              onClick={() => {
-                if (webrtcManager && selectedContact) {
-                  webrtcManager.startVideoCall(selectedContact.id)
-                }
-              }}
-              disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
-            >
-              <Video className="h-4 w-4" />
-            </Button>
 
-
-
-            {/* More Options Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreVertical className="h-4 w-4" />
+          {/* Contact header - Always visible */}
+          {selectedContact ? (
+            <div className="p-4 flex items-center justify-between flex-shrink-0 border-t border-gray-100">
+              <div className="flex items-center space-x-3">
+                <Avatar>
+                  <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
+                  <AvatarFallback>
+                    {selectedContact?.name
+                      ? selectedContact.name.split(" ").map((n) => n[0]).join("")
+                      : "?"}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
+                  <p className="text-sm text-gray-500">
+                    {isTyping
+                      ? "Typing..."
+                      : contactStatus.online
+                        ? "Online"
+                        : contactStatus.lastSeen
+                          ? `Last seen ${Math.round((Date.now() - contactStatus.lastSeen) / 60000)} min ago`
+                          : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                {/* Voice Call Button */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="p-2 rounded-full hover:bg-gray-100"
+                  onClick={() => {
+                    if (webrtcManager && selectedContact) {
+                      webrtcManager.startVoiceCall(selectedContact.id)
+                    }
+                  }}
+                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+                >
+                  <Phone className="h-4 w-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete History
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                {/* Video Call Button */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="p-2 rounded-full hover:bg-gray-100"
+                  onClick={() => {
+                    if (webrtcManager && selectedContact) {
+                      webrtcManager.startVideoCall(selectedContact.id)
+                    }
+                  }}
+                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+                >
+                  <Video className="h-4 w-4" />
+                </Button>
+
+                {/* More Options Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete History
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 flex items-center justify-center flex-shrink-0 border-t border-gray-100">
+              <div className="text-center">
+                <h3 className="font-semibold text-gray-500">Select a contact to start chatting</h3>
+                <p className="text-sm text-gray-400 mt-1">Choose someone from your contacts list</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Messages - Scrollable area */}
-        <div className="flex-1 overflow-hidden">
-          <ScrollArea className="h-full p-4">
+        {/* Messages - Scrollable area with proper top spacing */}
+        <div className="flex-1 overflow-hidden relative">
+          <ScrollArea 
+            ref={scrollAreaRef}
+            className="h-full p-4 pb-28" // Increased bottom padding for better spacing
+            onScroll={handleScroll}
+          >
             <div className="space-y-4 pb-4">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center py-8">
@@ -1326,59 +1423,98 @@ export default function ChatPage() {
                   <span className="text-sm text-gray-500">Loading messages...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <span className="text-sm text-gray-500">No messages yet. Start a conversation!</span>
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                    <MessageSquare className="h-8 w-8 text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No messages yet</h3>
+                  <p className="text-sm text-gray-500 max-w-sm">
+                    Start a conversation with {selectedContact?.name || 'your contact'} by sending your first message!
+                  </p>
                 </div>
               ) : (
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={cn("flex", message.senderId === "me" ? "justify-end" : "justify-start")}
+                    className={cn("flex mb-4", message.senderId === "me" ? "justify-end" : "justify-start")}
                   >
                     <div
                       className={cn(
-                        "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
-                        message.senderId === "me" ? "bg-blue-500 text-white" : "bg-white border border-gray-200",
+                        "max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm",
+                        message.senderId === "me" 
+                          ? "bg-blue-500 text-white rounded-br-md" 
+                          : "bg-gray-100 text-gray-900 rounded-bl-md border border-gray-200"
                       )}
                     >
-                      {message.type === "text" && <p className="text-sm">{message.content}</p>}
+                      {message.type === "text" && (
+                        <p className="text-sm leading-relaxed break-words">{message.content}</p>
+                      )}
                       {message.type === "image" && message.content && (
                         <div className="space-y-2">
                           <img
                             src={message.content}
                             alt="Shared image"
-                            className="rounded-lg max-w-full h-auto cursor-pointer"
+                            className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
                             style={{ maxWidth: 240, maxHeight: 320 }}
                             onClick={() => setPreviewImage(message.content)}
                           />
                         </div>
                       )}
                       {message.type === "file" && message.content && (
-                        <div className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
-                          <File className="h-8 w-8 text-blue-500" />
-                          <div>
-                            <a href={message.content} target="_blank" rel="noopener noreferrer" className="text-sm font-medium underline">
+                        <div className="flex items-center space-x-3 p-3 bg-white bg-opacity-20 rounded-lg">
+                          <File className="h-8 w-8 text-blue-500 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <a 
+                              href={message.content} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-sm font-medium underline hover:no-underline block truncate"
+                            >
                               {message.fileName || 'Download file'}
                             </a>
-                            <p className="text-xs text-gray-500">{message.fileSize}</p>
+                            <p className="text-xs opacity-70 mt-1">{message.fileSize}</p>
                           </div>
                         </div>
                       )}
-                      <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                      <p className={cn(
+                        "text-xs mt-2 opacity-70",
+                        message.senderId === "me" ? "text-right" : "text-left"
+                      )}>
+                        {message.timestamp}
+                      </p>
                     </div>
                   </div>
                 ))
               )}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} className="h-4" /> {/* Add height to ensure proper scrolling */}
             </div>
           </ScrollArea>
+
+          {/* Scroll to Bottom Button */}
+          {showScrollToBottom && (
+            <Button
+              onClick={() => {
+                scrollToBottom();
+                setNewMessageCount(0);
+              }}
+              className="absolute bottom-20 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
+              size="sm"
+            >
+              <ChevronDown className="h-5 w-5" />
+              {newMessageCount > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-red-500">
+                  {newMessageCount > 9 ? '9+' : newMessageCount}
+                </Badge>
+              )}
+            </Button>
+          )}
         </div>
 
-        {/* Message Input - Pinned at bottom, above keyboard */}
+        {/* Message Input - Fixed at bottom but with proper spacing */}
         <div
           className={cn(
-            "bg-white border-t border-gray-200 p-4 flex-shrink-0 fixed bottom-0 left-0 right-0 z-30",
-            isKeyboardVisible && "pb-safe-area-inset-bottom"
+            "bg-white border-t border-gray-200 p-4 flex-shrink-0 z-30 shadow-lg",
+            isKeyboardVisible ? "fixed bottom-0 left-0 right-0 pb-safe-area-inset-bottom" : "relative"
           )}
           style={{
             paddingBottom: isKeyboardVisible ? "env(safe-area-inset-bottom, 16px)" : "16px",
@@ -1412,6 +1548,7 @@ export default function ChatPage() {
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                 onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
                 className="pr-20"
                 style={{
                   fontSize: "16px", // Prevents zoom on iOS
