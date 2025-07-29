@@ -10,17 +10,6 @@ body {
   .text-balance {
     text-wrap: balance;
   }
-  
-  /* Mobile viewport utilities */
-  .h-screen-mobile {
-    height: 100vh;
-    height: calc(var(--vh, 1vh) * 100);
-  }
-  
-  .min-h-screen-mobile {
-    min-height: 100vh;
-    min-height: calc(var(--vh, 1vh) * 100);
-  }
 }
 
 @layer base {
@@ -58,7 +47,6 @@ body {
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
-    --vh: 1vh; /* Default viewport height */
   }
   .dark {
     --background: 0 0% 3.9%;
