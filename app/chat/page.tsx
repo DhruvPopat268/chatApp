@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
@@ -37,6 +37,8 @@ import {
   Bell,
   ChevronDown,
   MessageSquare,
+  Menu,
+  FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -689,23 +691,31 @@ export default function ChatPage() {
     // This prevents keyboard from closing when clicking outside the input
   }
 
-  // Handle viewport changes for mobile keyboard
-  useEffect(() => {
-    const handleViewportChange = () => {
-      if (typeof window !== 'undefined' && window.visualViewport) {
-        const viewport = window.visualViewport;
-        const isKeyboardOpen = viewport.height < window.innerHeight * 0.85; // More sensitive detection
-        setIsKeyboardVisible(isKeyboardOpen);
-        
-        // If keyboard is open, scroll to bottom immediately
+  // Handle viewport changes (keyboard open/close)
+  const handleViewportChange = useCallback(() => {
+    if (window.visualViewport) {
+      const newHeight = window.visualViewport.height;
+      const windowHeight = window.innerHeight;
+      const keyboardHeight = windowHeight - newHeight;
+      
+      // Consider keyboard open if it takes more than 150px
+      const isKeyboardOpen = keyboardHeight > 150;
+      setIsKeyboardVisible(isKeyboardOpen);
+      
+      // Update main container height to account for keyboard
+      const mainContainer = document.getElementById('chat-main-container');
+      if (mainContainer) {
         if (isKeyboardOpen) {
-          setTimeout(() => {
-            scrollToBottom();
-          }, 50);
+          mainContainer.style.height = `${newHeight}px`;
+        } else {
+          mainContainer.style.height = '100vh';
         }
       }
-    };
+    }
+  }, []);
 
+  // Handle viewport changes for mobile keyboard
+  useEffect(() => {
     if (typeof window !== 'undefined' && window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleViewportChange);
       return () => {
@@ -714,7 +724,7 @@ export default function ChatPage() {
         }
       };
     }
-  }, []);
+  }, [handleViewportChange]);
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedContact || !currentUser) return;
@@ -786,16 +796,6 @@ export default function ChatPage() {
   const handleAvatarUpload = () => {
     fileInputRef.current?.click()
   }
-
-  // const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = event.target.files?.[0]
-  //   if (file && editedUser) {
-  //     // In a real app, you would upload the file to a server
-  //     // For now, we'll just create a local URL
-  //     const imageUrl = URL.createObjectURL(file)
-  //     setEditedUser({ ...editedUser, avatar: imageUrl })
-  //   }
-  // }
 
   const saveProfile = () => {
     setCurrentUser(editedUser)
@@ -1092,6 +1092,26 @@ export default function ChatPage() {
     }
   };
 
+  const startVoiceCall = async (contactId: string) => {
+    if (!webrtcManager || !selectedContact) return;
+    try {
+      const callData = await webrtcManager.startVoiceCall(contactId);
+      setIncomingCallData(callData);
+    } catch (error) {
+      console.error('Error starting voice call:', error);
+    }
+  };
+
+  const startVideoCall = async (contactId: string) => {
+    if (!webrtcManager || !selectedContact) return;
+    try {
+      const callData = await webrtcManager.startVideoCall(contactId);
+      setIncomingCallData(callData);
+    } catch (error) {
+      console.error('Error starting video call:', error);
+    }
+  };
+
 
   return (
     <div className="flex h-screen bg-gray-50 relative overflow-hidden">
@@ -1365,8 +1385,9 @@ export default function ChatPage() {
       {/* Main Chat Area */}
       <div 
         ref={chatContainerRef}
+        id="chat-main-container"
         className={cn(
-          "flex-1 flex flex-col bg-white",
+          "flex-1 flex flex-col bg-white relative",
           isSidebarOpen ? "z-0" : "z-10"
         )}
         style={{
@@ -1377,301 +1398,273 @@ export default function ChatPage() {
       >
         {/* Sticky Header - Always visible with conditional z-index */}
         <div className={cn(
-          "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
-          isSidebarOpen ? "z-0" : "z-40" // Lower z-index when sidebar is open
+          "sticky top-0 z-40 shadow-sm backdrop-blur-sm bg-white/95",
+          isSidebarOpen ? "z-0" : "z-40"
         )}>
-          {/* Top Bar with Sidebar Toggle */}
-          <div className="p-3 flex items-center space-x-3 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleSidebar}
-              className="p-2 rounded-full hover:bg-gray-100"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <div className="flex-1">
-              <h2 className="text-lg font-semibold">Chat</h2>
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="lg:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <h1 className="text-lg font-semibold">Chat</h1>
             </div>
           </div>
 
-          {/* Contact header - Always visible */}
+          {/* Contact Header */}
           {selectedContact ? (
-            <div className="p-4 flex items-center justify-between flex-shrink-0 border-t border-gray-100">
+            <div className="flex items-center justify-between p-4 border-b">
               <div className="flex items-center space-x-3">
-                <Avatar>
-                  <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
-                  <AvatarFallback>
-                    {selectedContact?.name
-                      ? selectedContact.name.split(" ").map((n) => n[0]).join("")
-                      : "?"}
-                  </AvatarFallback>
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={selectedContact.avatar} alt={selectedContact.name} />
+                  <AvatarFallback>{selectedContact.name.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <h3 className="font-semibold">{selectedContact?.name || "No Contact"}</h3>
+                  <h2 className="font-semibold">{selectedContact.name}</h2>
                   <p className="text-sm text-gray-500">
-                    {isTyping
-                      ? "Typing..."
-                      : contactStatus.online
-                        ? "Online"
-                        : contactStatus.lastSeen
-                          ? `Last seen ${Math.round((Date.now() - contactStatus.lastSeen) / 60000)} min ago`
-                          : ""}
+                    {selectedContact.online ? "Online" : `Last seen ${selectedContact.timestamp}`}
                   </p>
                 </div>
               </div>
               <div className="flex items-center space-x-2">
-                {/* Voice Call Button */}
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => startVoiceCall(selectedContact.id)}
                   className="p-2 rounded-full hover:bg-gray-100"
-                  onClick={() => {
-                    if (webrtcManager && selectedContact) {
-                      webrtcManager.startVoiceCall(selectedContact.id)
-                    }
-                  }}
-                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+                  title="Voice call"
                 >
                   <Phone className="h-4 w-4" />
                 </Button>
-                {/* Video Call Button */}
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => startVideoCall(selectedContact.id)}
                   className="p-2 rounded-full hover:bg-gray-100"
-                  onClick={() => {
-                    if (webrtcManager && selectedContact) {
-                      webrtcManager.startVideoCall(selectedContact.id)
-                    }
-                  }}
-                  disabled={!webrtcManager || !selectedContact || callState.isIncoming || callState.isOutgoing || callState.isConnected}
+                  title="Video call"
                 >
                   <Video className="h-4 w-4" />
                 </Button>
-
-                {/* More Options Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="p-2 rounded-full hover:bg-gray-100">
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent>
+                  <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)}>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete History
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Chat
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
           ) : (
-            <div className="p-4 flex items-center justify-center flex-shrink-0 border-t border-gray-100">
-              <div className="text-center">
-                <h3 className="font-semibold text-gray-500">Select a contact to start chatting</h3>
-                <p className="text-sm text-gray-400 mt-1">Choose someone from your contacts list</p>
+            <div className="flex items-center justify-center p-8 text-center">
+              <div className="space-y-2">
+                <MessageSquare className="h-12 w-12 text-gray-400 mx-auto" />
+                <h3 className="text-lg font-medium text-gray-900">Select a contact</h3>
+                <p className="text-sm text-gray-500">Choose a contact from the sidebar to start chatting</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Messages - Scrollable area with proper spacing for sticky footer */}
-        <div className="flex-1 overflow-hidden relative">
-          <ScrollArea 
-            ref={scrollAreaRef}
-            className="h-full p-4 pb-20" // Reduced bottom padding to prevent overlap
-            onScroll={handleScroll}
-          >
-            <div className="space-y-4 pb-4">
-              {isLoadingMessages ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                  <span className="text-sm text-gray-500">Loading messages...</span>
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                    <MessageSquare className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No messages yet</h3>
-                  <p className="text-sm text-gray-500 max-w-sm">
-                    Start a conversation with {selectedContact?.name || 'your contact'} by sending your first message!
-                  </p>
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn("flex mb-4", message.senderId === "me" ? "justify-end" : "justify-start")}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm",
-                        message.senderId === "me" 
-                          ? "bg-blue-500 text-white rounded-br-md" 
-                          : "bg-gray-100 text-gray-900 rounded-bl-md border border-gray-200"
-                      )}
-                    >
-                      {message.type === "text" && (
-                        <p className="text-sm leading-relaxed break-words">{message.content}</p>
-                      )}
-                      {message.type === "image" && message.content && (
-                        <div className="space-y-2">
-                          <img
-                            src={message.content}
-                            alt="Shared image"
-                            className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-                            style={{ maxWidth: 240, maxHeight: 320 }}
-                            onClick={() => setPreviewImage(message.content)}
-                          />
-                        </div>
-                      )}
-                      {message.type === "file" && message.content && (
-                        <div className="flex items-center space-x-3 p-3 bg-white bg-opacity-20 rounded-lg">
-                          <File className="h-8 w-8 text-blue-500 flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <a 
-                              href={message.content} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-sm font-medium underline hover:no-underline block truncate"
-                            >
-                              {message.fileName || 'Download file'}
-                            </a>
-                            <p className="text-xs opacity-70 mt-1">{message.fileSize}</p>
-                          </div>
-                        </div>
-                      )}
-                      <p className={cn(
-                        "text-xs mt-2 opacity-70",
-                        message.senderId === "me" ? "text-right" : "text-left"
-                      )}>
-                        {message.timestamp}
-                      </p>
+        {/* Messages Area - Flexible height */}
+        <div className="flex-1 overflow-hidden">
+          {selectedContact ? (
+            <ScrollArea 
+              ref={scrollAreaRef}
+              className="h-full"
+              onScroll={handleScroll}
+            >
+              <div className="p-4 pb-2">
+                {isLoadingMessages ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="space-y-2 text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                      <p className="text-sm text-gray-500">Loading messages...</p>
                     </div>
                   </div>
-                ))
-              )}
-              <div ref={messagesEndRef} className="h-4" /> {/* Add height to ensure proper scrolling */}
-            </div>
-          </ScrollArea>
-
-          {/* Scroll to Bottom Button */}
-          {showScrollToBottom && (
-            <Button
-              onClick={() => {
-                scrollToBottom();
-                setNewMessageCount(0);
-              }}
-              className="absolute bottom-20 right-4 rounded-full w-12 h-12 p-0 bg-blue-500 hover:bg-blue-600 text-white shadow-lg z-10"
-              size="sm"
-            >
-              <ChevronDown className="h-5 w-5" />
-              {newMessageCount > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-red-500">
-                  {newMessageCount > 9 ? '9+' : newMessageCount}
-                </Badge>
-              )}
-            </Button>
-          )}
+                ) : messages.length === 0 ? (
+                  <div className="flex items-center justify-center py-8 text-center">
+                    <div className="space-y-2">
+                      <MessageSquare className="h-12 w-12 text-gray-400 mx-auto" />
+                      <h3 className="text-lg font-medium text-gray-900">No messages yet</h3>
+                      <p className="text-sm text-gray-500">Start a conversation with {selectedContact.name}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.senderId === "me" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[70%] rounded-2xl shadow-sm ${
+                            message.senderId === "me"
+                              ? "bg-blue-500 text-white rounded-br-md"
+                              : "bg-gray-100 text-gray-900 rounded-bl-md"
+                          }`}
+                        >
+                          {message.type === "text" && (
+                            <div className="p-3">
+                              <p className="text-sm leading-relaxed break-words">{message.content}</p>
+                              <p className={`text-xs mt-1 ${message.senderId === "me" ? "text-blue-100" : "text-gray-500"}`}>
+                                {message.timestamp}
+                              </p>
+                            </div>
+                          )}
+                          {message.type === "image" && (
+                            <div className="p-1">
+                              <img
+                                src={message.content || "/placeholder.jpg"}
+                                alt="Shared image"
+                                className="max-w-full h-auto rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => window.open(message.content, '_blank')}
+                              />
+                              <p className={`text-xs mt-1 px-3 pb-2 ${message.senderId === "me" ? "text-blue-100" : "text-gray-500"}`}>
+                                {message.timestamp}
+                              </p>
+                            </div>
+                          )}
+                          {message.type === "file" && (
+                            <div className="p-3">
+                              <div className="flex items-center space-x-2">
+                                <FileText className="h-4 w-4 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium block truncate">{message.fileName}</p>
+                                  <p className="text-xs opacity-75">{message.fileSize}</p>
+                                </div>
+                              </div>
+                              <p className={`text-xs mt-2 ${message.senderId === "me" ? "text-blue-100" : "text-gray-500"}`}>
+                                {message.timestamp}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={messagesEndRef} className="h-4" />
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          ) : null}
         </div>
 
-        {/* Message Input - Sticky Footer - Always visible */}
-        <div
-          className={cn(
-            "sticky bottom-0 bg-white border-t border-gray-200 p-4 flex-shrink-0 shadow-lg backdrop-blur-sm bg-white/95",
-            isSidebarOpen ? "z-0" : "z-50" // Conditional z-index but always accessible
+        {/* Scroll to Bottom Button */}
+        {showScrollToBottom && (
+          <Button
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-20 right-4 z-50 rounded-full shadow-lg"
+            size="sm"
+          >
+            <ChevronDown className="h-4 w-4" />
+            {newMessageCount > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 w-5 rounded-full p-0 text-xs">
+                {newMessageCount}
+              </Badge>
+            )}
+          </Button>
+        )}
+
+        {/* Sticky Footer - Always at bottom */}
+        <div className={cn(
+          "sticky bottom-0 z-50 bg-white border-t shadow-sm",
+          isSidebarOpen ? "z-0" : "z-50"
+        )}>
+          {selectedContact && (
+            <div className="p-4">
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleImageButtonClick} 
+                  disabled={isUploadingImage}
+                  className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                  title="Send image"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageChange}
+                />
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleFileButtonClick} 
+                  disabled={isUploadingImage}
+                  className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                  title="Send file"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                <div className="flex-1 relative">
+                  <Input
+                    ref={messageInputRef}
+                    placeholder="Type a message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                    onFocus={handleInputFocus}
+                    onBlur={handleInputBlur}
+                    className="pr-20 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    style={{
+                      fontSize: "16px", // Prevents zoom on iOS
+                    }}
+                  />
+                </div>
+                <div 
+                  className="flex-shrink-0"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onTouchStart={(e) => e.preventDefault()}
+                >
+                  <Button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      sendMessage();
+                    }}
+                    onTouchStart={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      sendMessage();
+                    }}
+                    ref={sendButtonRef}
+                    size="sm" 
+                    disabled={isUploadingImage || !newMessage.trim()}
+                    className={cn(
+                      "p-2 rounded-full transition-all duration-200",
+                      newMessage.trim() 
+                        ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
+                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    )}
+                    title="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
-          style={{
-            // Ensure the input sits directly on top of the keyboard
-            bottom: isKeyboardVisible ? '0' : '0',
-            paddingBottom: isKeyboardVisible ? '8px' : '16px',
-          }}
-        >
-          {/* Subtle top border indicator */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 opacity-50"></div>
-          
-          <div className="flex items-center space-x-2">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={handleImageButtonClick} 
-              disabled={isUploadingImage}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              title="Send image"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageChange}
-            />
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={handleFileButtonClick} 
-              disabled={isUploadingImage}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              title="Send file"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <div className="flex-1 relative">
-              <Input
-                ref={messageInputRef}
-                placeholder="Type a message..."
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                onFocus={handleInputFocus}
-                onBlur={handleInputBlur}
-                className="pr-20 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                style={{
-                  fontSize: "16px", // Prevents zoom on iOS
-                }}
-              />
-            </div>
-            <div 
-              className="flex-shrink-0"
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchStart={(e) => e.preventDefault()}
-            >
-              <Button 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  sendMessage();
-                }}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  sendMessage();
-                }}
-                ref={sendButtonRef}
-                size="sm" 
-                disabled={isUploadingImage || !newMessage.trim()}
-                className={cn(
-                  "p-2 rounded-full transition-all duration-200",
-                  newMessage.trim() 
-                    ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" 
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                )}
-                title="Send message"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
         </div>
       </div>
 
