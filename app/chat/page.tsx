@@ -1380,23 +1380,18 @@ export default function ChatPage() {
           "sticky top-0 bg-white border-b border-gray-200 shadow-sm backdrop-blur-sm bg-white/95",
           isSidebarOpen ? "z-0" : "z-40" // Lower z-index when sidebar is open
         )}>
-          {/* Top Bar with Sidebar Toggle */}
-          <div className="p-3 flex items-center space-x-3 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleSidebar}
-              className="p-2 rounded-full hover:bg-gray-100"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-
           {/* Contact header - Always visible */}
           {selectedContact ? (
             <div className="p-4 flex items-center justify-between flex-shrink-0 border-t border-gray-100">
               <div className="flex items-center space-x-3">
-                <ChevronLeft className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleSidebar}
+                  className="p-2 rounded-full hover:bg-gray-100"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
                 <Avatar>
                   <AvatarImage src={selectedContact?.avatar || "/placeholder.svg"} />
                   <AvatarFallback>
@@ -1478,7 +1473,7 @@ export default function ChatPage() {
         <div className="flex-1 overflow-hidden relative">
           <ScrollArea 
             ref={scrollAreaRef}
-            className="h-full p-4 pb-20" // Reduced bottom padding to prevent overlap
+            className="h-full p-4 pb-24" // Increased bottom padding to make room for footer
             onScroll={handleScroll}
           >
             <div className="space-y-4 pb-4">
@@ -1591,39 +1586,44 @@ export default function ChatPage() {
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 opacity-50"></div>
           
           <div className="flex items-center space-x-2">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={handleImageButtonClick} 
-              disabled={isUploadingImage}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              title="Send image"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageChange}
-            />
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={handleFileButtonClick} 
-              disabled={isUploadingImage}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              title="Send file"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={handleFileChange}
-            />
+            {/* Media Upload Buttons */}
+            <div className="flex items-center space-x-1">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleImageButtonClick} 
+                disabled={isUploadingImage}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                title="Send image"
+              >
+                <ImageIcon className="h-4 w-4" />
+              </Button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageChange}
+              />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleFileButtonClick} 
+                disabled={isUploadingImage}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                title="Send file"
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </div>
+            
+            {/* Message Input Field */}
             <div className="flex-1 relative">
               <Input
                 ref={messageInputRef}
@@ -1639,6 +1639,8 @@ export default function ChatPage() {
                 }}
               />
             </div>
+            
+            {/* Send Button */}
             <div 
               className="flex-shrink-0"
               onMouseDown={(e) => e.preventDefault()}
